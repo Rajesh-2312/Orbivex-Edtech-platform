@@ -1,0 +1,70 @@
+version: '3.9'
+
+services:
+  # ─── Backend API ───
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: orbivex-api
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-qwen2.5:1.5b}
+      OLLAMA_NOTES_MODEL: ${OLLAMA_NOTES_MODEL:-}
+      OLLAMA_QUIZ_MODEL: ${OLLAMA_QUIZ_MODEL:-}
+      OLLAMA_COURSE_MODEL: ${OLLAMA_COURSE_MODEL:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_MODEL: ${NVIDIA_MODEL:-meta/llama-3.3-70b-instruct}
+      NVIDIA_BASE_URL: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - ollama
+      - redis
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    restart: unless-stopped
+    networks:
+      - orbivex-net
+
+  # ─── Ollama LLM ───
+  ollama:
+    image: ollama/ollama:latest
+    container_name: orbivex-ollama
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    restart: unless-stopped
+    networks:
+      - orbivex-net
+
+  # ─── Redis Cache ───
+  redis:
+    image: redis:7-alpine
+    container_name: orbivex-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - orbivex-net
+
+volumes:
+  ollama_data:
+  redis_data:
+
+networks:
+  orbivex-net:
+    driver: bridge
