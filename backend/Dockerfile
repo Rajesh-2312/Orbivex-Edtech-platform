@@ -2,10 +2,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+# Works whether Docker context is backend/ (local compose) or repo root (Railway)
+COPY backend/package*.json ./
 RUN npm install --omit=dev
 
-COPY . .
+COPY backend/ .
 
 EXPOSE 3001
 

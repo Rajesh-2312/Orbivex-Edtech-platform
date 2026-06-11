@@ -59,7 +59,18 @@ export default function LSRWResultPage() {
   const { result, skill, topic } = state;
   const cfg = SKILL_CFG[skill] || SKILL_CFG.reading;
   const grade = gradeInfo(result.score);
-  const subEntries = Object.entries(result.sub_scores || {});
+
+  // Normalise sub_scores: backend may return nested sub_scores or flat dimension fields
+  const subScores = result.sub_scores || (() => {
+    const candidates = ['pronunciation','fluency','grammar','vocabulary','content_relevance','coherence','task_achievement','word_count_score'];
+    const flat = {};
+    candidates.forEach(k => { if (result[k] != null) flat[k] = result[k]; });
+    return Object.keys(flat).length ? flat : null;
+  })();
+  const subEntries = Object.entries(subScores || {});
+
+  // Normalise question results field name
+  const questionResults = result.question_results || result.per_question || [];
 
   return (
     <PageTransition>
@@ -173,26 +184,26 @@ export default function LSRWResultPage() {
           </motion.div>
         )}
 
-        {/* Reading Q&A breakdown */}
-        {result.question_results && result.question_results.length > 0 && (
+        {/* Q&A breakdown (reading, listening) */}
+        {questionResults.length > 0 && (
           <motion.div className="glass-card" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
             style={{ padding: '22px 24px', marginBottom: 20 }}>
             <h3 style={{ margin: '0 0 18px', fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' }}>Question-by-Question Breakdown</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {result.question_results.map((qr, i) => {
-                const passed = qr.score >= 60;
+              {questionResults.map((qr, i) => {
+                const passed = (qr.score ?? (qr.correct ? 100 : 0)) >= 60;
                 return (
                   <div key={i} style={{ padding: '14px 16px', background: passed ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)', border: `1px solid ${passed ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}`, borderRadius: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                       <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem', margin: 0 }}>Q{i+1}. {qr.question}</p>
-                      <span style={{ fontWeight: 800, fontSize: '1.05rem', color: passed ? '#10b981' : '#ef4444', flexShrink: 0, marginLeft: 12 }}>{Math.round(qr.score)}</span>
+                      <span style={{ fontWeight: 800, fontSize: '1.05rem', color: passed ? '#10b981' : '#ef4444', flexShrink: 0, marginLeft: 12 }}>{passed ? '✓' : '✗'}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 6 }}>
                       {passed ? <HiOutlineCheckCircle size={15} style={{ color: '#10b981', flexShrink: 0, marginTop: 2 }} /> : <HiOutlineXCircle size={15} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />}
-                      <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}><strong>Your answer:</strong> {qr.student_answer}</p>
+                      <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}><strong>Your answer:</strong> {qr.student_answer || qr.answer}</p>
                     </div>
-                    {!passed && <p style={{ margin: '0 0 4px 23px', fontSize: '0.82rem', color: '#10b981' }}><strong>Reference:</strong> {qr.correct_answer}</p>}
-                    <p style={{ margin: '4px 0 0 23px', fontSize: '0.76rem', color: 'var(--text-muted)' }}>{qr.explanation}</p>
+                    {!passed && qr.correct_answer && <p style={{ margin: '0 0 4px 23px', fontSize: '0.82rem', color: '#10b981' }}><strong>Correct:</strong> {qr.correct_answer}</p>}
+                    {qr.explanation && <p style={{ margin: '4px 0 0 23px', fontSize: '0.76rem', color: 'var(--text-muted)' }}>{qr.explanation}</p>}
                   </div>
                 );
               })}

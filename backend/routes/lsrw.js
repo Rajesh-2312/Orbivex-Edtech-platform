@@ -60,31 +60,31 @@ const READING_PASSAGES = [
   {
     id: 'r1', level: 'beginner', read_time_minutes: 3,
     title: 'The Benefits of Exercise',
-    text: 'Regular physical exercise offers numerous benefits for both the body and mind. Aerobic activities such as running, swimming, and cycling improve cardiovascular health, helping the heart pump blood more efficiently. Strength training builds muscle mass and supports bone density, reducing the risk of osteoporosis. Beyond physical health, exercise releases endorphins — chemicals that improve mood and reduce stress. Even 30 minutes of moderate exercise five days a week can significantly lower the risk of chronic diseases such as diabetes and hypertension. For students, regular exercise has been linked to improved concentration and academic performance.',
+    passage: 'Regular physical exercise offers numerous benefits for both the body and mind. Aerobic activities such as running, swimming, and cycling improve cardiovascular health, helping the heart pump blood more efficiently. Strength training builds muscle mass and supports bone density, reducing the risk of osteoporosis. Beyond physical health, exercise releases endorphins — chemicals that improve mood and reduce stress. Even 30 minutes of moderate exercise five days a week can significantly lower the risk of chronic diseases such as diabetes and hypertension. For students, regular exercise has been linked to improved concentration and academic performance.',
     questions: [
-      { q: 'Which type of exercise improves cardiovascular health?', opts: ['Strength training', 'Aerobic exercise', 'Yoga', 'Stretching'], answer: 'B' },
-      { q: 'What chemical released by exercise improves mood?', opts: ['Serotonin', 'Dopamine', 'Endorphins', 'Cortisol'], answer: 'C' },
-      { q: 'How does exercise benefit students specifically?', opts: ['Reduces sleep needs', 'Improves concentration and grades', 'Increases appetite', 'Reduces screen time'], answer: 'B' },
+      { id: 'r1q0', question_type: 'comprehension', question: 'Which type of exercise improves cardiovascular health?', opts: ['Strength training', 'Aerobic exercise', 'Yoga', 'Stretching'], answer: 'B' },
+      { id: 'r1q1', question_type: 'comprehension', question: 'What chemical released by exercise improves mood?', opts: ['Serotonin', 'Dopamine', 'Endorphins', 'Cortisol'], answer: 'C' },
+      { id: 'r1q2', question_type: 'inference', question: 'How does exercise benefit students specifically?', opts: ['Reduces sleep needs', 'Improves concentration and grades', 'Increases appetite', 'Reduces screen time'], answer: 'B' },
     ],
   },
   {
     id: 'r2', level: 'intermediate', read_time_minutes: 5,
     title: 'India\'s Space Programme',
-    text: 'India\'s space programme, managed by the Indian Space Research Organisation (ISRO), has grown from a modest beginning in 1969 into a globally respected agency. The Chandrayaan-3 mission in 2023 made India the first country to land near the lunar south pole, a region of great scientific interest due to the presence of water ice. ISRO\'s cost-effective approach — the Mars Orbiter Mission cost less than the Hollywood film Gravity — has attracted international attention and commercial launch contracts. The agency\'s PSLV rocket has launched satellites for over 30 countries. India is now developing the Gaganyaan crewed spacecraft, aiming to send Indian astronauts to orbit by 2025.',
+    passage: 'India\'s space programme, managed by the Indian Space Research Organisation (ISRO), has grown from a modest beginning in 1969 into a globally respected agency. The Chandrayaan-3 mission in 2023 made India the first country to land near the lunar south pole, a region of great scientific interest due to the presence of water ice. ISRO\'s cost-effective approach — the Mars Orbiter Mission cost less than the Hollywood film Gravity — has attracted international attention and commercial launch contracts. The agency\'s PSLV rocket has launched satellites for over 30 countries. India is now developing the Gaganyaan crewed spacecraft, aiming to send Indian astronauts to orbit by 2025.',
     questions: [
-      { q: 'When was ISRO founded?', opts: ['1947', '1969', '1980', '1990'], answer: 'B' },
-      { q: 'What was unique about Chandrayaan-3\'s landing?', opts: ['First Indian moon mission', 'First ever moon landing', 'First landing near lunar south pole', 'First robotic rover'], answer: 'C' },
-      { q: 'What is Gaganyaan?', opts: ['A Mars probe', 'A communication satellite', 'A crewed spacecraft', 'A launch vehicle'], answer: 'C' },
+      { id: 'r2q0', question_type: 'comprehension', question: 'When was ISRO founded?', opts: ['1947', '1969', '1980', '1990'], answer: 'B' },
+      { id: 'r2q1', question_type: 'comprehension', question: 'What was unique about Chandrayaan-3\'s landing?', opts: ['First Indian moon mission', 'First ever moon landing', 'First landing near lunar south pole', 'First robotic rover'], answer: 'C' },
+      { id: 'r2q2', question_type: 'comprehension', question: 'What is Gaganyaan?', opts: ['A Mars probe', 'A communication satellite', 'A crewed spacecraft', 'A launch vehicle'], answer: 'C' },
     ],
   },
   {
     id: 'r3', level: 'advanced', read_time_minutes: 7,
     title: 'The Economics of Automation',
-    text: 'The widespread adoption of automation and artificial intelligence is reshaping labour markets in ways that economists are still debating. Classical economic theory holds that technological displacement is temporary: new industries emerge to absorb displaced workers, as happened during the Industrial Revolution. However, several economists argue that AI-driven automation is qualitatively different because it can substitute for cognitive as well as manual labour. Studies suggest that up to 47% of US occupations face a high risk of automation within two decades. India, with its large services sector and demographic dividend, faces a dual challenge: leveraging automation for productivity gains while managing potential job displacement among a workforce of over 500 million. Policy responses under discussion include universal basic income, reskilling subsidies, and adjustments to capital taxation.',
+    passage: 'The widespread adoption of automation and artificial intelligence is reshaping labour markets in ways that economists are still debating. Classical economic theory holds that technological displacement is temporary: new industries emerge to absorb displaced workers, as happened during the Industrial Revolution. However, several economists argue that AI-driven automation is qualitatively different because it can substitute for cognitive as well as manual labour. Studies suggest that up to 47% of US occupations face a high risk of automation within two decades. India, with its large services sector and demographic dividend, faces a dual challenge: leveraging automation for productivity gains while managing potential job displacement among a workforce of over 500 million. Policy responses under discussion include universal basic income, reskilling subsidies, and adjustments to capital taxation.',
     questions: [
-      { q: 'What does classical economic theory say about technological displacement?', opts: ['It is permanent', 'New industries will absorb workers', 'Wages will fall permanently', 'Government must intervene always'], answer: 'B' },
-      { q: 'Why do some economists see AI as different from past automation?', opts: ['It is faster', 'It can replace cognitive labour too', 'It is cheaper', 'It was not predicted'], answer: 'B' },
-      { q: 'What percentage of US occupations may face automation risk?', opts: ['20%', '35%', '47%', '60%'], answer: 'C' },
+      { id: 'r3q0', question_type: 'comprehension', question: 'What does classical economic theory say about technological displacement?', opts: ['It is permanent', 'New industries will absorb workers', 'Wages will fall permanently', 'Government must intervene always'], answer: 'B' },
+      { id: 'r3q1', question_type: 'inference', question: 'Why do some economists see AI as different from past automation?', opts: ['It is faster', 'It can replace cognitive labour too', 'It is cheaper', 'It was not predicted'], answer: 'B' },
+      { id: 'r3q2', question_type: 'comprehension', question: 'What percentage of US occupations may face automation risk?', opts: ['20%', '35%', '47%', '60%'], answer: 'C' },
     ],
   },
 ];
@@ -185,12 +185,22 @@ Evaluate the student's comprehension. Return ONLY valid JSON:
 {
   "score": <0-100>,
   "feedback": "<2-3 sentence overall feedback>",
-  "per_question": [{"question": "<q>", "answer": "<student answer>", "correct": true/false, "comment": "<brief>"}],
+  "question_results": [{"question": "<q>", "student_answer": "<student answer>", "score": <0-100>, "explanation": "<brief comment>"}],
   "strengths": ["<point>"],
   "improvements": ["<point>"]
 }`;
 
     const result = await aiEvaluate(prompt);
+    // Normalise legacy per_question → question_results
+    if (!result.question_results && result.per_question) {
+      result.question_results = result.per_question.map(q => ({
+        question: q.question,
+        student_answer: q.answer,
+        score: q.correct ? 100 : 0,
+        explanation: q.comment || (q.correct ? 'Correct.' : 'Needs improvement.'),
+      }));
+    }
+    result.model_used = process.env.NVIDIA_MODEL || 'local';
     await saveEvaluation(student_id || req.user.id, 'listening', result.score || 60, session_id, { questions, student_answers });
     res.json(result);
   } catch (err) {
@@ -214,29 +224,46 @@ router.post('/speaking/start-session', authMiddleware, async (req, res) => {
 router.post('/speaking/evaluate', authMiddleware, async (req, res) => {
   try {
     const { topic_prompt, transcript, duration_seconds, student_id, session_id } = req.body;
-    if (!transcript?.trim()) return error(res, 'transcript is required');
+
+    const transcriptNote = transcript?.trim()
+      ? `STUDENT TRANSCRIPT (${duration_seconds || '?'}s):\n${transcript}`
+      : `NOTE: Audio was recorded for ${duration_seconds || '?'} seconds but transcription is not available in local mode. Evaluate based on duration and effort.`;
 
     const prompt = `You are an English speaking evaluator for Indian engineering students.
 
 TOPIC: ${topic_prompt}
-STUDENT TRANSCRIPT (${duration_seconds || '?'}s):
-${transcript}
+${transcriptNote}
 
 Evaluate pronunciation, fluency, grammar, vocabulary, and content relevance.
 Return ONLY valid JSON:
 {
   "score": <0-100>,
   "feedback": "<2-3 sentence overall feedback>",
-  "pronunciation": <0-100>,
-  "fluency": <0-100>,
-  "grammar": <0-100>,
-  "vocabulary": <0-100>,
-  "content_relevance": <0-100>,
+  "sub_scores": {
+    "pronunciation": <0-100>,
+    "fluency": <0-100>,
+    "grammar": <0-100>,
+    "vocabulary": <0-100>,
+    "content_relevance": <0-100>
+  },
   "strengths": ["<point>"],
   "improvements": ["<point>"]
 }`;
 
     const result = await aiEvaluate(prompt);
+    // Flatten sub_scores onto result for compatibility if AI returned flat fields
+    if (!result.sub_scores && (result.pronunciation || result.fluency)) {
+      result.sub_scores = {
+        pronunciation: result.pronunciation,
+        fluency: result.fluency,
+        grammar: result.grammar,
+        vocabulary: result.vocabulary,
+        content_relevance: result.content_relevance,
+      };
+    }
+    result.transcript = transcript || null;
+    result.words_per_minute = transcript ? Math.round((transcript.split(/\s+/).length / (duration_seconds || 60)) * 60) : null;
+    result.model_used = process.env.NVIDIA_MODEL || 'local';
     await saveEvaluation(student_id || req.user.id, 'speaking', result.score || 60, session_id, { topic_prompt, transcript });
     res.json(result);
   } catch (err) {
@@ -259,33 +286,49 @@ router.post('/reading/start-session', authMiddleware, async (req, res) => {
 
 router.post('/reading/evaluate', authMiddleware, async (req, res) => {
   try {
-    const { passage_id, questions, student_answers, time_taken_seconds, student_id, session_id } = req.body;
+    const { passage_id, student_answers, time_taken_seconds, student_id, session_id } = req.body;
     const passage = READING_PASSAGES.find(p => p.id === passage_id);
     if (!passage) return error(res, 'Unknown passage_id');
 
+    // Normalise answers: accept array (indexed by position) or object (keyed by question id)
+    const getAnswer = (q, i) => {
+      if (Array.isArray(student_answers)) return student_answers[i] || '';
+      return student_answers?.[q.id] || student_answers?.[i] || '';
+    };
+
     // Score MCQs directly — no AI needed for objective answers
-    const perQuestion = passage.questions.map((q, i) => {
-      const correct = q.answer === (student_answers?.[i] || '');
-      return { question: q.q, student_answer: student_answers?.[i] || '', correct, correct_answer: q.answer };
+    const question_results = passage.questions.map((q, i) => {
+      const studentAns = getAnswer(q, i);
+      const correct = q.answer === studentAns;
+      const optLabels = ['A', 'B', 'C', 'D'];
+      const studentLabel = optLabels.includes(studentAns) ? `${studentAns}: ${q.opts[optLabels.indexOf(studentAns)] || studentAns}` : studentAns || '(no answer)';
+      const correctLabel = `${q.answer}: ${q.opts[optLabels.indexOf(q.answer)] || q.answer}`;
+      return {
+        question: q.question,
+        student_answer: studentLabel,
+        correct_answer: correctLabel,
+        score: correct ? 100 : 0,
+        explanation: correct ? 'Correct!' : `The correct answer is ${correctLabel}.`,
+      };
     });
 
-    const correctCount = perQuestion.filter(q => q.correct).length;
-    const score = Math.round((correctCount / perQuestion.length) * 100);
+    const correctCount = question_results.filter(q => q.score === 100).length;
+    const score = Math.round((correctCount / question_results.length) * 100);
 
     // AI writes qualitative feedback
-    const qaStr = perQuestion.map(q => `Q: ${q.question}\nStudent: ${q.student_answer} | Correct: ${q.correct_answer} (${q.correct ? '✓' : '✗'})`).join('\n\n');
+    const qaStr = question_results.map(q => `Q: ${q.question}\nStudent: ${q.student_answer} | Correct: ${q.correct_answer} (${q.score === 100 ? '✓' : '✗'})`).join('\n\n');
     const prompt = `A student answered reading comprehension questions about "${passage.title}".
 ${qaStr}
 Time taken: ${time_taken_seconds || '?'} seconds.
 Write 2 sentences of constructive feedback on their reading comprehension. Be specific. No JSON needed.`;
 
-    let feedbackText = 'Good effort! Review the passage carefully for the questions you missed.';
+    let feedback = 'Good effort! Review the passage carefully for the questions you missed.';
     try {
       const raw = await generateCompletion('standard', prompt, { temperature: 0.3, max_tokens: 150, cache: false });
-      if (raw?.trim()) feedbackText = raw.trim();
+      if (raw?.trim()) feedback = raw.trim();
     } catch {}
 
-    const result = { score, feedback: feedbackText, per_question: perQuestion, correct: correctCount, total: perQuestion.length };
+    const result = { score, feedback, question_results, correct: correctCount, total: question_results.length };
     await saveEvaluation(student_id || req.user.id, 'reading', score, session_id, { passage_id, student_answers, time_taken_seconds });
     res.json(result);
   } catch (err) {
@@ -339,7 +382,18 @@ Return ONLY valid JSON:
 }`;
 
     const result = await aiEvaluate(prompt);
+    // Wrap individual dimension scores in sub_scores
+    if (!result.sub_scores && (result.grammar || result.vocabulary)) {
+      result.sub_scores = {
+        grammar: result.grammar,
+        vocabulary: result.vocabulary,
+        coherence: result.coherence,
+        task_achievement: result.task_achievement,
+        word_count_score: result.word_count_score,
+      };
+    }
     result.word_count = wordCount;
+    result.model_used = process.env.NVIDIA_MODEL || 'local';
     await saveEvaluation(student_id || req.user.id, 'writing', result.score || 60, session_id, { writingPrompt, student_text, wordCount });
     res.json(result);
   } catch (err) {

@@ -9,20 +9,13 @@ import {
   HiOutlineArrowRight, HiOutlinePlay,
 } from 'react-icons/hi2';
 
-function blobToBase64(blob) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onloadend = () => res(r.result.split(',')[1]);
-    r.onerror = rej;
-    r.readAsDataURL(blob);
-  });
-}
-
 const LEVEL_STYLE = {
   beginner:     { bg: 'rgba(16,185,129,0.12)', color: '#10b981' },
   intermediate: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b' },
   advanced:     { bg: 'rgba(239,68,68,0.12)',  color: '#ef4444' },
 };
+
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 export default function LSRWSpeakingPage() {
   const navigate = useNavigate();
@@ -30,18 +23,25 @@ export default function LSRWSpeakingPage() {
   const [topics, setTopics] = useState([]);
   const [selected, setSelected] = useState(null);
   const [sessionId, setSessionId] = useState(null);
-  const [phase, setPhase] = useState('select'); // select | prepare | recording | processing
+  const [phase, setPhase] = useState('select');
   const [seconds, setSeconds] = useState(0);
+  const [transcript, setTranscript] = useState('');
   const [error, setError] = useState('');
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const transcriptRef = useRef('');
 
   useEffect(() => {
     getSpeakingTopics().then(d => setTopics(d.topics || []))
       .catch(() => setError('Could not load topics. LSRW Skills is temporarily unavailable — please try again later.'));
-    return () => { clearInterval(timerRef.current); streamRef.current?.getTracks().forEach(t => t.stop()); };
+    return () => {
+      clearInterval(timerRef.current);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      recognitionRef.current?.stop();
+    };
   }, []);
 
   const handleSelect = async (topic) => {
@@ -50,12 +50,14 @@ export default function LSRWSpeakingPage() {
       const session = await startSpeakingSession(user.id, topic.id);
       setSelected(topic); setSessionId(session.session_id); setPhase('prepare');
     } catch (e) {
-      setError(`Could not start session: ${e?.response?.data?.detail || e.message}`);
+      setError(`Could not start session: ${e?.response?.data?.error || e.message}`);
     }
   };
 
   const startRecording = async () => {
     chunksRef.current = [];
+    transcriptRef.current = '';
+    setTranscript('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -63,6 +65,25 @@ export default function LSRWSpeakingPage() {
       recorder.ondataavailable = e => chunksRef.current.push(e.data);
       recorder.start(250);
       recorderRef.current = recorder;
+
+      if (SpeechRecognitionAPI) {
+        const recognition = new SpeechRecognitionAPI();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        recognition.onresult = (event) => {
+          let final = '';
+          for (let i = 0; i < event.results.length; i++) {
+            if (event.results[i].isFinal) final += event.results[i][0].transcript + ' ';
+          }
+          transcriptRef.current = final.trim();
+          setTranscript(final.trim());
+        };
+        recognition.onerror = () => {};
+        recognition.start();
+        recognitionRef.current = recognition;
+      }
+
       setPhase('recording'); setSeconds(0);
       timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
     } catch {
@@ -73,15 +94,14 @@ export default function LSRWSpeakingPage() {
   const stopAndEvaluate = async () => {
     clearInterval(timerRef.current);
     recorderRef.current?.stop();
+    recognitionRef.current?.stop();
     streamRef.current?.getTracks().forEach(t => t.stop());
     setPhase('processing');
-    await new Promise(r => setTimeout(r, 600));
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-    const audio_base64 = await blobToBase64(blob);
+    await new Promise(r => setTimeout(r, 800));
     try {
       const result = await evaluateSpeaking({
-        audio_base64,
         topic_prompt: selected.prompt,
+        transcript: transcriptRef.current || null,
         duration_seconds: seconds,
         student_id: user.id,
         session_id: sessionId,
@@ -92,7 +112,7 @@ export default function LSRWSpeakingPage() {
     }
   };
 
-  const fmt = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   return (
     <PageTransition>
@@ -160,7 +180,10 @@ export default function LSRWSpeakingPage() {
                     <HiOutlineMicrophone size={32} style={{ color: '#a855f7' }} />
                   </div>
                   <p style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>Read the topic above, then press record when ready.</p>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: 24 }}>Your microphone will activate when you click below.</p>
+                  {SpeechRecognitionAPI
+                    ? <p style={{ color: 'rgba(168,85,247,0.7)', fontSize: '0.78rem', marginBottom: 24 }}>🎤 Live transcription enabled — speak clearly in English</p>
+                    : <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginBottom: 24 }}>Transcription unavailable in this browser — duration will be used for scoring</p>
+                  }
                   <button onClick={startRecording} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 32px', background: '#a855f7', border: 'none', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}>
                     <HiOutlinePlay size={18} /> Start Recording
                   </button>
@@ -176,9 +199,15 @@ export default function LSRWSpeakingPage() {
                     </div>
                   </div>
                   <div style={{ fontSize: '2.8rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, fontVariantNumeric: 'tabular-nums' }}>{fmt(seconds)}</div>
-                  <div style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.85rem', marginBottom: 28 }}>● Recording...</div>
+                  <div style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.85rem', marginBottom: transcript ? 12 : 28 }}>● Recording...</div>
+                  {transcript && (
+                    <div style={{ marginBottom: 20, padding: '10px 14px', background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.15)', borderRadius: 10, textAlign: 'left' }}>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>LIVE TRANSCRIPT</p>
+                      <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontStyle: 'italic', margin: 0, lineHeight: 1.5 }}>{transcript}</p>
+                    </div>
+                  )}
                   <button onClick={stopAndEvaluate} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 32px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 14, color: '#ef4444', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}>
-                    <HiOutlineStopCircle size={18} /> Stop & Evaluate
+                    <HiOutlineStopCircle size={18} /> Stop &amp; Evaluate
                   </button>
                   <style>{`@keyframes ping { 0%,100%{transform:scale(1);opacity:0.6} 50%{transform:scale(1.5);opacity:0} }`}</style>
                 </>
@@ -187,8 +216,8 @@ export default function LSRWSpeakingPage() {
               {phase === 'processing' && (
                 <>
                   <div style={{ width: 56, height: 56, borderRadius: '50%', border: '4px solid rgba(168,85,247,0.2)', borderTopColor: '#a855f7', animation: 'spin 0.8s linear infinite', margin: '0 auto 18px' }} />
-                  <p style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Transcribing and evaluating your speech...</p>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.83rem', marginTop: 6 }}>Checking pronunciation, fluency, vocabulary & grammar</p>
+                  <p style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Evaluating your speech...</p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.83rem', marginTop: 6 }}>Checking pronunciation, fluency, vocabulary &amp; grammar</p>
                   <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                 </>
               )}
