@@ -1,8 +1,8 @@
-const { generateCompletion } = require('../config/ollama');
+const { generateCompletion } = require('../config/ai');
 
 class RecommendAgent {
   constructor() {
-    this.model = process.env.OLLAMA_RECOMMEND_MODEL || process.env.OLLAMA_DEFAULT_MODEL || 'tinyllama';
+    this.model = 'claude';
     this.maxRetries = 1;
   }
 

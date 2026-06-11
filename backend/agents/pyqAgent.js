@@ -1,11 +1,8 @@
 const { supabaseAdmin } = require('../config/supabase');
-const { generateCompletion } = require('../config/ollama');
+const { generateCompletion } = require('../config/ai');
 const { SOURCES } = require('../utils/sources');
 
-const MODEL = process.env.OLLAMA_PYQ_MODEL
-  || process.env.OLLAMA_QUIZ_MODEL
-  || process.env.OLLAMA_DEFAULT_MODEL
-  || 'qwen2.5:1.5b';
+const MODEL = 'claude';
 
 const BATCH_SIZE = 5;       // 1.5B model handles up to 5 MCQs per call cleanly.
 const MAX_BATCHES = 12;     // hard cap so a runaway loop can't spam Ollama (12 * 5 = 60).

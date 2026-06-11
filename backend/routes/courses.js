@@ -15,7 +15,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
   let query = supabase
     .from('courses')
-    .select('*, profiles!created_by(username, display_name)', { count: 'exact' })
+    .select('*', { count: 'exact' })
     .eq('is_published', true)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -78,7 +78,7 @@ async function filterByCourseAccess(courses, user) {
 router.get('/:id', async (req, res) => {
   const { data, error: dbError } = await supabase
     .from('courses')
-    .select('*, profiles!created_by(username, display_name), lessons(id, title, description, sort_order, duration_minutes)')
+    .select('*, lessons(id, title, description, sort_order, duration_minutes)')
     .eq('id', req.params.id)
     .single();
 

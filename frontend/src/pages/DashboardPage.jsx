@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import {
+  motion, useMotionValue, useSpring, useTransform, useMotionTemplate, useReducedMotion,
+} from 'framer-motion';
 import PageTransition from '../components/layout/PageTransition';
 import StatCard from '../components/dashboard/StatCard';
 import { CompletionDoughnut, WeeklyProgressBar } from '../components/dashboard/ProgressChart';
@@ -8,12 +10,14 @@ import RecentActivity from '../components/dashboard/RecentActivity';
 import UpcomingWidget from '../components/dashboard/UpcomingWidget';
 import useAuthStore from '../store/authStore';
 import api from '../lib/api';
+import { useProgress } from '../hooks/useRealtime';
 import {
   HiOutlineBookOpen, HiOutlineChartBar, HiOutlineBriefcase,
-  HiOutlineSparkles, HiOutlineShieldCheck, HiOutlineAcademicCap,
-  HiOutlinePencilSquare, HiOutlineDocumentText, HiOutlineUsers,
+  HiOutlineSparkles, HiOutlineAcademicCap,
+  HiOutlineDocumentText, HiOutlineUsers,
   HiOutlineArrowRight, HiOutlineCheckCircle, HiOutlinePlay,
   HiOutlinePlus, HiOutlineBuildingOffice2, HiOutlineCog6Tooth,
+  HiOutlineFire, HiOutlineBolt, HiOutlineClipboardDocumentList,
 } from 'react-icons/hi2';
 
 const timeOfDay = () => {
@@ -23,33 +27,200 @@ const timeOfDay = () => {
   return 'Good evening';
 };
 
+/* Orchestration variants for cinematic staggered reveals */
+const stage = { hidden: {}, show: { transition: { staggerChildren: 0.07, delayChildren: 0.12 } } };
+const rise = {
+  hidden: { opacity: 0, y: 26 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+};
+
 /* ──────────────────────────────────────────────
-   Quick-action card
+   Drifting aurora backdrop
+────────────────────────────────────────────── */
+function CinematicBackground() {
+  const reduce = useReducedMotion();
+  if (reduce) return null;
+  return (
+    <div className="dash-aurora" aria-hidden="true">
+      <div className="dash-aurora-blob b1" />
+      <div className="dash-aurora-blob b2" />
+      <div className="dash-aurora-blob b3" />
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────
+   Mission-control hero with pointer parallax
+────────────────────────────────────────────── */
+const ROLE_META = {
+  admin:   { label: 'Admin',    grad: 'linear-gradient(135deg,#f97316,#fbbf24)', copy: 'Full platform control. Manage colleges, users, courses, and assessments.' },
+  tpo:     { label: 'TPO',      grad: 'linear-gradient(135deg,#a855f7,#22d3ee)', copy: 'Manage placement drives, track student readiness, and generate NAAC reports.' },
+  teacher: { label: 'Educator', grad: 'linear-gradient(135deg,#10b981,#34d399)', copy: 'Create impactful courses and generate AI-powered quizzes for your students.' },
+  student: { label: 'Student',  grad: 'linear-gradient(135deg,#06b6d4,#22d3ee)', copy: 'Continue your learning orbit. Your progress awaits.' },
+};
+
+function CommandHero({ user, role }) {
+  const reduce = useReducedMotion();
+  const meta = ROLE_META[role] || ROLE_META.student;
+
+  const px = useMotionValue(0);
+  const py = useMotionValue(0);
+  const spx = useSpring(px, { stiffness: 60, damping: 18 });
+  const spy = useSpring(py, { stiffness: 60, damping: 18 });
+
+  const handleMove = (e) => {
+    if (reduce) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    px.set(((e.clientX - r.left) / r.width - 0.5) * 28);
+    py.set(((e.clientY - r.top) / r.height - 0.5) * 22);
+  };
+  const handleLeave = () => { px.set(0); py.set(0); };
+
+  return (
+    <motion.div
+      className="dash-hero"
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+    >
+      <motion.div className="dash-hero-parallax" style={{ x: spx, y: spy }} />
+
+      <div className="dash-hero-main">
+        <motion.div
+          className="dash-hero-eyebrow"
+          initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}
+        >
+          <span className="dash-hero-pulse" /> {timeOfDay()}
+        </motion.div>
+        <motion.h1
+          className="dash-hero-title"
+          initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32, duration: 0.6 }}
+        >
+          {user?.display_name || user?.email?.split('@')[0] || 'User'}
+        </motion.h1>
+        <motion.p
+          className="dash-hero-sub"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45 }}
+        >
+          {meta.copy}
+        </motion.p>
+      </div>
+
+      <div className="dash-hero-side">
+        <span className="dash-role-badge" style={{ background: meta.grad }}>{meta.label}</span>
+        {role === 'admin' && <Link to="/admin"><button className="btn btn-primary btn-sm">Open Admin Panel →</button></Link>}
+        {role === 'tpo' && <Link to="/placement"><button className="btn btn-primary btn-sm">TPO Dashboard →</button></Link>}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ──────────────────────────────────────────────
+   3D-tilt quick-action card
 ────────────────────────────────────────────── */
 function ActionCard({ icon: Icon, title, desc, to, color, badge }) {
+  const reduce = useReducedMotion();
+  const rx = useMotionValue(0);
+  const ry = useMotionValue(0);
+  const gx = useMotionValue(50);
+  const gy = useMotionValue(50);
+  const srx = useSpring(rx, { stiffness: 220, damping: 18 });
+  const sry = useSpring(ry, { stiffness: 220, damping: 18 });
+  const glowLeft = useTransform(gx, (v) => `${v}%`);
+  const glowTop = useTransform(gy, (v) => `${v}%`);
+
+  const handleMove = (e) => {
+    if (reduce) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const fx = (e.clientX - r.left) / r.width;
+    const fy = (e.clientY - r.top) / r.height;
+    ry.set((fx - 0.5) * 11);
+    rx.set(-(fy - 0.5) * 11);
+    gx.set(fx * 100);
+    gy.set(fy * 100);
+  };
+  const handleLeave = () => { rx.set(0); ry.set(0); gx.set(50); gy.set(50); };
+
   return (
     <Link to={to} style={{ textDecoration: 'none' }}>
       <motion.div
-        className="glass-card"
-        style={{ padding: '20px', height: '100%', cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
-        whileHover={{ y: -3 }}
-        transition={{ duration: 0.2 }}
+        className="glass-card dash-tilt dash-action"
+        variants={rise}
+        onMouseMove={handleMove}
+        onMouseLeave={handleLeave}
+        style={{ rotateX: srx, rotateY: sry, transformPerspective: 900, '--act-color': color }}
+        whileHover={{ y: -4 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 22 }}
       >
-        {badge && (
-          <span style={{ position: 'absolute', top: 12, right: 12, fontSize: '0.68rem', fontWeight: 700, color: 'white', background: 'var(--brand-500)', padding: '2px 8px', borderRadius: 99, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {badge}
-          </span>
-        )}
-        <div style={{ width: 42, height: 42, borderRadius: 12, background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-          <Icon size={22} style={{ color }} />
-        </div>
-        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: 5 }}>{title}</div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{desc}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 14, fontSize: '0.78rem', color, fontWeight: 600 }}>
-          Open <HiOutlineArrowRight size={13} />
+        <motion.div
+          className="dash-action-glow"
+          style={{ left: glowLeft, top: glowTop, marginLeft: -110, marginTop: -110 }}
+        />
+        <div className="dash-tilt-inner">
+          {badge && (
+            <span style={{ position: 'absolute', top: 12, right: 12, fontSize: '0.68rem', fontWeight: 700, color: 'white', background: 'var(--brand-500)', padding: '2px 8px', borderRadius: 99, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {badge}
+            </span>
+          )}
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+            <Icon size={22} style={{ color }} />
+          </div>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: 5 }}>{title}</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{desc}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 14, fontSize: '0.78rem', color, fontWeight: 600 }}>
+            Open <HiOutlineArrowRight size={13} />
+          </div>
         </div>
       </motion.div>
     </Link>
+  );
+}
+
+/* Section heading that reveals on scroll */
+function SectionTitle({ children }) {
+  return (
+    <motion.h3
+      className="dash-section-title"
+      style={{ marginBottom: 14, fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 600 }}
+      initial={{ opacity: 0, x: -10 }}
+      whileInView={{ opacity: 1, x: 0 }}
+      viewport={{ once: true, amount: 0.6 }}
+      transition={{ duration: 0.5 }}
+    >
+      {children}
+    </motion.h3>
+  );
+}
+
+/* Glass panel that rises into view */
+function RevealPanel({ children, style, delay = 0 }) {
+  return (
+    <motion.div
+      className="glass-card-static"
+      style={{ padding: 22, ...style }}
+      initial={{ opacity: 0, y: 24 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={{ duration: 0.55, delay, ease: [0.22, 1, 0.36, 1] }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+function ActionGrid({ actions }) {
+  return (
+    <motion.div
+      variants={stage}
+      initial="hidden"
+      whileInView="show"
+      viewport={{ once: true, amount: 0.1 }}
+      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 14, marginBottom: 28 }}
+    >
+      {actions.map((a) => <ActionCard key={a.title} {...a} />)}
+    </motion.div>
   );
 }
 
@@ -60,17 +231,20 @@ function EnrolledCourseRow({ course, enrollment }) {
   const id = course?.id || enrollment?.course_id;
   return (
     <Link to={`/courses/${id}`} style={{ textDecoration: 'none' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 14,
-        padding: '12px 16px',
-        background: 'rgba(249,115,22,0.04)',
-        border: '1px solid rgba(249,115,22,0.08)',
-        borderRadius: 'var(--radius-md)',
-        transition: 'all 0.2s',
-        cursor: 'pointer',
-      }}>
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(249,115,22,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>
-          📚
+      <motion.div
+        whileHover={{ x: 4 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 14,
+          padding: '12px 16px',
+          background: 'rgba(249,115,22,0.04)',
+          border: '1px solid rgba(249,115,22,0.08)',
+          borderRadius: 'var(--radius-md)',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(249,115,22,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--brand-400)', flexShrink: 0 }}>
+          <HiOutlineBookOpen size={18} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -81,7 +255,7 @@ function EnrolledCourseRow({ course, enrollment }) {
           </div>
         </div>
         <HiOutlinePlay size={16} style={{ color: 'var(--brand-400)', flexShrink: 0 }} />
-      </div>
+      </motion.div>
     </Link>
   );
 }
@@ -101,40 +275,31 @@ function StudentDashboard({ stats, enrolledCourses }) {
 
   return (
     <>
-      {/* Stats */}
       <div className="stats-grid" style={{ marginBottom: 28 }}>
-        <StatCard icon="📚" value={stats?.enrolled_courses  || 0} label="Enrolled Courses"  color="var(--brand-500)"      index={0} />
-        <StatCard icon="✅" value={stats?.completed_lessons || 0} label="Lessons Completed"  color="var(--accent-emerald)" index={1} />
-        <StatCard icon="📝" value={stats?.quizzes_taken     || 0} label="Quizzes Taken"      color="var(--accent-violet)"  index={2} />
-        <StatCard icon="🔥" value={`${stats?.current_streak || 0}d`} label="Day Streak"     color="var(--gold)"           index={3} />
+        <StatCard icon={<HiOutlineBookOpen size={22} />}                value={stats?.enrolled_courses  || 0} label="Enrolled Courses"  color="var(--brand-500)"      index={0} />
+        <StatCard icon={<HiOutlineCheckCircle size={22} />}             value={stats?.completed_lessons || 0} label="Lessons Completed"  color="var(--accent-emerald)" index={1} />
+        <StatCard icon={<HiOutlineClipboardDocumentList size={22} />}   value={stats?.quizzes_taken     || 0} label="Quizzes Taken"      color="var(--accent-violet)"  index={2} />
+        <StatCard icon={<HiOutlineFire size={22} />}                    value={`${stats?.current_streak || 0}d`} label="Day Streak"     color="var(--gold)"           index={3} />
       </div>
 
-      {/* Upcoming calendar events */}
       <UpcomingWidget />
 
-      {/* Feature Quick Actions */}
-      <h3 style={{ marginBottom: 14, fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-        Platform Features
-      </h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 14, marginBottom: 28 }}>
-        {actions.map((a) => <ActionCard key={a.title} {...a} />)}
-      </div>
+      <SectionTitle>Platform Features</SectionTitle>
+      <ActionGrid actions={actions} />
 
-      {/* Bottom row: charts + enrolled courses */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
+        <RevealPanel>
           <h4 style={{ marginBottom: 14, fontSize: '0.95rem' }}>Overall Progress</h4>
           <CompletionDoughnut completed={stats?.completed_lessons || 0} total={Math.max(stats?.completed_lessons || 0, 10)} />
-        </motion.div>
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.38 }}>
+        </RevealPanel>
+        <RevealPanel delay={0.08}>
           <h4 style={{ marginBottom: 14, fontSize: '0.95rem' }}>Weekly Activity</h4>
           <WeeklyProgressBar />
-        </motion.div>
+        </RevealPanel>
       </div>
 
-      {/* Enrolled courses + recent activity */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.45 }}>
+        <RevealPanel delay={0.12}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <h4 style={{ fontSize: '0.95rem', margin: 0 }}>My Courses</h4>
             <Link to="/courses" style={{ fontSize: '0.78rem', color: 'var(--brand-400)', fontWeight: 500 }}>View all →</Link>
@@ -151,12 +316,12 @@ function StudentDashboard({ stats, enrolledCourses }) {
               ))}
             </div>
           )}
-        </motion.div>
+        </RevealPanel>
 
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.52 }}>
+        <RevealPanel delay={0.16}>
           <h4 style={{ marginBottom: 14, fontSize: '0.95rem' }}>Recent Activity</h4>
           <RecentActivity activities={stats?.recent_activity || []} />
-        </motion.div>
+        </RevealPanel>
       </div>
     </>
   );
@@ -178,26 +343,24 @@ function EducatorDashboard({ stats }) {
   return (
     <>
       <div className="stats-grid" style={{ marginBottom: 28 }}>
-        <StatCard icon="📖" value={stats?.enrolled_courses  || 0} label="Courses Teaching"   color="var(--brand-500)"      index={0} />
-        <StatCard icon="✅" value={stats?.completed_lessons || 0} label="Lessons Created"    color="var(--accent-emerald)" index={1} />
-        <StatCard icon="📝" value={stats?.quizzes_taken     || 0} label="Quizzes Generated"  color="var(--accent-violet)"  index={2} />
-        <StatCard icon="⚡" value={stats?.current_streak    || 0} label="AI Calls Made"      color="var(--gold)"           index={3} />
+        <StatCard icon={<HiOutlineBookOpen size={22} />}              value={stats?.enrolled_courses  || 0} label="Courses Teaching"   color="var(--brand-500)"      index={0} />
+        <StatCard icon={<HiOutlineCheckCircle size={22} />}           value={stats?.completed_lessons || 0} label="Lessons Created"    color="var(--accent-emerald)" index={1} />
+        <StatCard icon={<HiOutlineClipboardDocumentList size={22} />} value={stats?.quizzes_taken     || 0} label="Quizzes Generated"  color="var(--accent-violet)"  index={2} />
+        <StatCard icon={<HiOutlineBolt size={22} />}                  value={stats?.current_streak    || 0} label="AI Calls Made"      color="var(--gold)"           index={3} />
       </div>
 
-      <h3 style={{ marginBottom: 14, fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Educator Tools</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 14, marginBottom: 28 }}>
-        {actions.map((a) => <ActionCard key={a.title} {...a} />)}
-      </div>
+      <SectionTitle>Educator Tools</SectionTitle>
+      <ActionGrid actions={actions} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
+        <RevealPanel>
           <h4 style={{ marginBottom: 14, fontSize: '0.95rem' }}>Completion Overview</h4>
           <CompletionDoughnut completed={stats?.completed_lessons || 0} total={Math.max(stats?.completed_lessons || 0, 10)} />
-        </motion.div>
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.38 }}>
+        </RevealPanel>
+        <RevealPanel delay={0.08}>
           <h4 style={{ marginBottom: 14, fontSize: '0.95rem' }}>Weekly Activity</h4>
           <WeeklyProgressBar />
-        </motion.div>
+        </RevealPanel>
       </div>
     </>
   );
@@ -206,12 +369,12 @@ function EducatorDashboard({ stats }) {
 /* ──────────────────────────────────────────────
    ADMIN DASHBOARD
 ────────────────────────────────────────────── */
-function AdminDashboard({ stats, adminStats }) {
+function AdminDashboard({ adminStats }) {
   const actions = [
     { icon: HiOutlineUsers,          title: 'User Management',     desc: 'View, edit roles, and manage all platform users',                to: '/admin', color: 'var(--brand-500)' },
     { icon: HiOutlineBuildingOffice2,title: 'College Management',   desc: 'Manage colleges, branches, sections, and students',             to: '/admin', color: 'var(--accent-cyan)' },
     { icon: HiOutlineBookOpen,       title: 'Course Management',    desc: 'Create, publish, and control access for all courses',           to: '/admin', color: 'var(--accent-emerald)' },
-    { icon: HiOutlineAcademicCap,    title: 'Question Bank & Tests','desc': 'Manage test papers, question banks, and assessments',          to: '/admin', color: 'var(--accent-violet)', badge: 'AI' },
+    { icon: HiOutlineAcademicCap,    title: 'Question Bank & Tests', desc: 'Manage test papers, question banks, and assessments',           to: '/admin', color: 'var(--accent-violet)', badge: 'AI' },
     { icon: HiOutlineSparkles,       title: 'AI Studio',            desc: 'Generate courses, quizzes, grade assignments, detect plagiarism',to: '/ai-studio', color: 'var(--gold)', badge: 'AI' },
     { icon: HiOutlineBriefcase,      title: 'Job Board Admin',      desc: 'Post jobs, manage listings, and track applications',            to: '/admin', color: 'var(--accent-amber)' },
   ];
@@ -225,18 +388,18 @@ function AdminDashboard({ stats, adminStats }) {
 
   return (
     <>
-      {/* System stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14, marginBottom: 28 }}>
-        {systemStats.map((s, i) => (
-          <motion.div key={s.label} className="glass-card-static" style={{ padding: '18px 20px' }}
-            initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
+      <motion.div
+        variants={stage} initial="hidden" animate="show"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14, marginBottom: 28 }}
+      >
+        {systemStats.map((s) => (
+          <motion.div key={s.label} className="glass-card-static" style={{ padding: '18px 20px' }} variants={rise}>
             <div style={{ font: '700 1.6rem/1 var(--font-display)', color: s.color, marginBottom: 5 }}>{s.value}</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{s.label}</div>
           </motion.div>
         ))}
-      </div>
+      </motion.div>
 
-      {/* Role architecture info banner */}
       <motion.div
         style={{ padding: '16px 20px', background: 'rgba(249,115,22,0.07)', border: '1px solid rgba(249,115,22,0.15)', borderRadius: 'var(--radius-md)', marginBottom: 24, display: 'flex', gap: 16, flexWrap: 'wrap' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
@@ -256,20 +419,18 @@ function AdminDashboard({ stats, adminStats }) {
         ))}
       </motion.div>
 
-      <h3 style={{ marginBottom: 14, fontSize: '1rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Admin Panel Sections</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 14, marginBottom: 28 }}>
-        {actions.map((a) => <ActionCard key={a.title} {...a} />)}
-      </div>
+      <SectionTitle>Admin Panel Sections</SectionTitle>
+      <ActionGrid actions={actions} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
+        <RevealPanel>
           <h4 style={{ marginBottom: 14, fontSize: '0.95rem' }}>Platform Overview</h4>
           <CompletionDoughnut completed={adminStats?.totalEnrollments || 0} total={Math.max(adminStats?.totalEnrollments || 0, 10)} />
-        </motion.div>
-        <motion.div className="glass-card-static" style={{ padding: 22 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.38 }}>
+        </RevealPanel>
+        <RevealPanel delay={0.08}>
           <h4 style={{ marginBottom: 14, fontSize: '0.95rem' }}>Weekly Activity</h4>
           <WeeklyProgressBar />
-        </motion.div>
+        </RevealPanel>
       </div>
     </>
   );
@@ -279,17 +440,14 @@ function AdminDashboard({ stats, adminStats }) {
    MAIN EXPORT
 ────────────────────────────────────────────── */
 export default function DashboardPage() {
-  const user    = useAuthStore((s) => s.user);
-  const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
 
   const [stats, setStats]           = useState(null);
   const [adminStats, setAdminStats] = useState(null);
   const [enrolled, setEnrolled]     = useState([]);
   const [loading, setLoading]       = useState(true);
 
-  useEffect(() => { fetchAll(); }, []);
-
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     try {
       const promises = [api.get('/analytics/dashboard')];
       if (user?.role === 'admin') promises.push(api.get('/admin/overview'));
@@ -303,66 +461,35 @@ export default function DashboardPage() {
       console.error('Dashboard fetch error:', err);
     }
     setLoading(false);
-  };
+  }, [user?.role]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Realtime: re-fetch dashboard stats whenever a lesson is completed
+  useProgress(user?.id, (row) => {
+    if (row?.completed) fetchAll();
+  });
 
   const role = user?.role || 'student';
 
   return (
     <PageTransition>
-      {/* ── Welcome Banner ── */}
-      <motion.div
-        style={{
-          marginBottom: 28, padding: '22px 26px',
-          background: 'linear-gradient(135deg, rgba(249,115,22,0.13) 0%, rgba(251,191,36,0.06) 100%)',
-          border: '1px solid rgba(249,115,22,0.18)',
-          borderRadius: 'var(--radius-lg)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-          position: 'relative', overflow: 'hidden',
-        }}
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <div style={{ position: 'absolute', right: -30, top: -30, width: 180, height: 180, borderRadius: '50%', background: 'radial-gradient(circle, rgba(249,115,22,0.16) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ font: '400 0.78rem/1 var(--font-body)', color: 'var(--brand-400)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7 }}>
-            ◎ {timeOfDay()}
-          </div>
-          <h1 style={{ marginBottom: 5, fontSize: '1.65rem' }}>
-            {user?.display_name || 'User'}
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0 }}>
-            {role === 'admin'
-              ? 'Full platform control. Manage colleges, users, courses, and assessments.'
-              : role === 'teacher'
-              ? 'Create impactful courses and generate AI-powered quizzes for your students.'
-              : 'Continue your learning orbit. Your progress awaits.'}
-          </p>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, zIndex: 1, flexShrink: 0 }}>
-          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'white', background: role === 'admin' ? 'var(--brand-500)' : role === 'teacher' ? 'var(--accent-emerald)' : 'var(--accent-cyan)', padding: '4px 12px', borderRadius: 99, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {role === 'teacher' ? 'Educator' : role}
-          </div>
-          {role === 'admin' && (
-            <Link to="/admin">
-              <button className="btn btn-primary btn-sm">Open Admin Panel →</button>
-            </Link>
-          )}
-        </div>
-      </motion.div>
+      <CinematicBackground />
+      <div className="dash-stage">
+        <CommandHero user={user} role={role} />
 
-      {/* ── Role-based content ── */}
-      {loading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
-          {[1,2,3,4].map((i) => <div key={i} className="skeleton" style={{ height: 96, borderRadius: 'var(--radius-lg)' }} />)}
-        </div>
-      ) : role === 'admin' ? (
-        <AdminDashboard stats={stats} adminStats={adminStats} />
-      ) : role === 'teacher' ? (
-        <EducatorDashboard stats={stats} />
-      ) : (
-        <StudentDashboard stats={stats} enrolledCourses={enrolled} />
-      )}
+        {loading ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+            {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton" style={{ height: 96, borderRadius: 'var(--radius-lg)' }} />)}
+          </div>
+        ) : role === 'admin' ? (
+          <AdminDashboard adminStats={adminStats} />
+        ) : role === 'tpo' || role === 'teacher' ? (
+          <EducatorDashboard stats={stats} />
+        ) : (
+          <StudentDashboard stats={stats} enrolledCourses={enrolled} />
+        )}
+      </div>
     </PageTransition>
   );
 }

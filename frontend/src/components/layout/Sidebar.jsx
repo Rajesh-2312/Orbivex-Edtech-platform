@@ -1,23 +1,44 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import {
   HiOutlineHome, HiOutlineBookOpen, HiOutlineChartBar,
   HiOutlineBriefcase, HiOutlineCog6Tooth, HiArrowRightOnRectangle,
   HiOutlineShieldCheck, HiOutlineClipboardDocumentList,
-  HiOutlineBuildingOffice2, HiOutlineCalendarDays,
+  HiOutlineBuildingOffice2, HiOutlineCalendarDays, HiOutlineLanguage,
+  HiOutlineUserGroup, HiOutlineDocumentChartBar, HiOutlineSparkles,
+  HiOutlineCommandLine, HiOutlineDocumentText,
+  HiOutlinePuzzlePiece, HiOutlineArchiveBox, HiOutlineBell,
 } from 'react-icons/hi2';
 import useAuthStore from '../../store/authStore';
 import useUiStore from '../../store/uiStore';
+import { useNotifications } from '../../hooks/useRealtime';
 
 const navItems = [
-  { path: '/dashboard', label: 'Dashboard', Icon: HiOutlineHome },
-  { path: '/courses',   label: 'Courses',   Icon: HiOutlineBookOpen },
-  { path: '/tests',         label: 'Tests',        Icon: HiOutlineClipboardDocumentList },
-  { path: '/calendar',      label: 'Calendar',     Icon: HiOutlineCalendarDays },
-  { path: '/progress',      label: 'Progress',     Icon: HiOutlineChartBar },
-  { path: '/jobs',          label: 'Jobs',         Icon: HiOutlineBriefcase },
-  { path: '/company-prep',  label: 'Company Prep', Icon: HiOutlineBuildingOffice2 },
-  { path: '/settings',  label: 'Settings',  Icon: HiOutlineCog6Tooth },
+  { path: '/dashboard',    label: 'Dashboard',    Icon: HiOutlineHome },
+  { path: '/courses',      label: 'Courses',      Icon: HiOutlineBookOpen },
+  { path: '/tests',        label: 'Tests',        Icon: HiOutlineClipboardDocumentList },
+  { path: '/calendar',     label: 'Calendar',     Icon: HiOutlineCalendarDays },
+  { path: '/progress',     label: 'Progress',     Icon: HiOutlineChartBar },
+  { path: '/jobs',         label: 'Jobs',         Icon: HiOutlineBriefcase },
+  { path: '/company-prep', label: 'Company Prep', Icon: HiOutlineBuildingOffice2 },
+  // ── Placement Tools ────────────────────────────────────────
+  { path: '/coding',       label: 'DSA Practice', Icon: HiOutlineCommandLine },
+  { path: '/resume',       label: 'Resume Builder',Icon: HiOutlineDocumentText },
+  { path: '/skill-gap',    label: 'Skill Gap',    Icon: HiOutlinePuzzlePiece },
+  { path: '/pyq',          label: 'PYQ Bank',     Icon: HiOutlineArchiveBox },
+  // ── Other ──────────────────────────────────────────────────
+  { path: '/lsrw',         label: 'LSRW Skills',  Icon: HiOutlineLanguage },
+  { path: '/my-placement', label: 'My Placement', Icon: HiOutlineSparkles },
+  { path: '/settings',     label: 'Settings',     Icon: HiOutlineCog6Tooth },
 ];
+
+const tpoItems = [
+  { path: '/placement',           label: 'TPO Dashboard',  Icon: HiOutlineShieldCheck },
+  { path: '/placement/drives',    label: 'Drives',         Icon: HiOutlineBriefcase },
+  { path: '/placement/profiles',  label: 'Student Profiles', Icon: HiOutlineUserGroup },
+  { path: '/placement/analytics', label: 'Analytics',      Icon: HiOutlineDocumentChartBar },
+];
+
 const adminItems = [
   { path: '/admin', label: 'Admin Panel', Icon: HiOutlineShieldCheck },
 ];
@@ -67,9 +88,20 @@ export default function Sidebar() {
   const { sidebarOpen, sidebarCollapsed, closeSidebar } = useUiStore();
   const navigate = useNavigate();
 
+  const [unreadCount, setUnreadCount] = useState(0);
+  useNotifications(user?.id, () => setUnreadCount((n) => n + 1));
+
   const handleLogout = () => { logout(); navigate('/login'); };
 
-  const items = user?.role === 'admin' ? [...navItems, ...adminItems] : navItems;
+  const isAdmin = user?.role === 'admin';
+  const isTPOorTeacher = ['tpo', 'teacher'].includes(user?.role);
+
+  // Build nav based on role — no duplicates
+  const items = isAdmin
+    ? [...navItems, ...tpoItems, ...adminItems]
+    : isTPOorTeacher
+    ? [...navItems, ...tpoItems]
+    : navItems;
 
   return (
     <>
@@ -156,6 +188,29 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="sidebar-footer">
+        {/* Notifications bell with live unread badge */}
+        <NavLink
+          to="/notifications"
+          className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          title="Notifications"
+          style={{ position: 'relative' }}
+          onClick={() => setUnreadCount(0)}
+        >
+          <HiOutlineBell className="nav-link-icon" />
+          <span>Notifications</span>
+          {unreadCount > 0 && (
+            <span style={{
+              position: 'absolute', top: 6, right: 10,
+              background: '#f97316', color: '#fff',
+              fontSize: '0.6rem', fontWeight: 700,
+              padding: '1px 5px', borderRadius: 99,
+              lineHeight: 1.4, minWidth: 16, textAlign: 'center',
+            }}>
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </NavLink>
+
         <button
           className="nav-link"
           onClick={handleLogout}

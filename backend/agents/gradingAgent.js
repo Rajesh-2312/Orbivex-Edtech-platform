@@ -1,8 +1,8 @@
-const { generateCompletion } = require('../config/ollama');
+const { generateCompletion } = require('../config/ai');
 
 class GradingAgent {
   constructor() {
-    this.model = process.env.OLLAMA_GRADING_MODEL || process.env.OLLAMA_DEFAULT_MODEL || 'tinyllama';
+    this.model = 'claude';
     this.maxRetries = 1;
   }
 

@@ -14,7 +14,7 @@ const { supabaseAdmin } = require('../config/supabase');
 router.get('/', async (req, res) => {
   const { data, error: dbError } = await supabase
     .from('jobs')
-    .select('*, profiles!posted_by(username, display_name)')
+    .select('*')
     .eq('is_active', true)
     .order('created_at', { ascending: false });
 
@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { data, error: dbError } = await supabase
     .from('jobs')
-    .select('*, profiles!posted_by(username, display_name)')
+    .select('*')
     .eq('id', req.params.id)
     .single();
 

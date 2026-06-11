@@ -1,6 +1,9 @@
 /**
  * Role-based access control middleware.
  * Usage: roleMiddleware('teacher', 'admin')
+ *
+ * Supported roles: student | teacher | tpo | admin
+ *
  * @param  {...string} allowedRoles - Roles that can access the route
  */
 function roleMiddleware(...allowedRoles) {

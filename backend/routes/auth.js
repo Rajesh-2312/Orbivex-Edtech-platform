@@ -90,7 +90,6 @@ router.post('/login', async (req, res) => {
   if (profileError) {
     console.error('[login] Profile fetch error:', profileError.message);
   }
-  console.log('[login] Profile result:', JSON.stringify(profile));
 
   return success(res, {
     token: authData.session.access_token,
@@ -112,8 +111,13 @@ router.post('/login', async (req, res) => {
  */
 router.post('/logout', async (req, res) => {
   const authHeader = req.headers.authorization;
-  if (authHeader) {
-    await supabase.auth.signOut();
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    // Revoke the specific user session via the admin API
+    const { data } = await supabase.auth.getUser(token).catch(() => ({}));
+    if (data?.user?.id) {
+      await supabaseAdmin.auth.admin.signOut(token).catch(() => {});
+    }
   }
   return success(res, { message: 'Logged out successfully' });
 });
@@ -123,38 +127,42 @@ router.post('/logout', async (req, res) => {
  * Get current user profile.
  */
 router.get('/me', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return error(res, 'Not authenticated', 401);
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return error(res, 'Not authenticated', 401);
+    }
+
+    const token = authHeader.split(' ')[1];
+    const { data, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !data.user) {
+      return error(res, 'Invalid or expired token', 401);
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, display_name, role, avatar_url, bio, enrollment_number, notify_email_optin, college_id, branch_id, section_id, created_at')
+      .eq('id', data.user.id)
+      .single();
+
+    return success(res, {
+      id: data.user.id,
+      email: data.user.email,
+      display_name: profile?.display_name || data.user.user_metadata?.display_name,
+      role: profile?.role || 'student',
+      avatar_url: profile?.avatar_url,
+      bio: profile?.bio,
+      enrollment_number: profile?.enrollment_number,
+      notify_email_optin: profile?.notify_email_optin !== false,
+      college_id: profile?.college_id,
+      branch_id: profile?.branch_id,
+      section_id: profile?.section_id,
+      created_at: profile?.created_at,
+    });
+  } catch (err) {
+    return error(res, 'Failed to fetch user profile', 500);
   }
-
-  const token = authHeader.split(' ')[1];
-  const { data, error: authError } = await supabase.auth.getUser(token);
-
-  if (authError || !data.user) {
-    return error(res, 'Invalid or expired token', 401);
-  }
-
-  const { data: profile } = await supabaseAdmin
-    .from('profiles')
-    .select('*')
-    .eq('id', data.user.id)
-    .single();
-
-  return success(res, {
-    id: data.user.id,
-    email: data.user.email,
-    display_name: profile?.display_name || data.user.user_metadata?.display_name,
-    role: profile?.role || 'student',
-    avatar_url: profile?.avatar_url,
-    bio: profile?.bio,
-    enrollment_number: profile?.enrollment_number,
-    notify_email_optin: profile?.notify_email_optin !== false,
-    college_id: profile?.college_id,
-    branch_id: profile?.branch_id,
-    section_id: profile?.section_id,
-    created_at: profile?.created_at,
-  });
 });
 
 /**
@@ -200,6 +208,121 @@ router.patch('/profile', authMiddleware, async (req, res) => {
     enrollment_number: data.enrollment_number,
     notify_email_optin: data.notify_email_optin,
   });
+});
+
+/**
+ * POST /api/auth/onboard-college
+ * Self-service college + admin account creation (called from OnboardingPage)
+ */
+router.post('/onboard-college', async (req, res) => {
+  const { college, plan_id, admin_name, admin_email, admin_password } = req.body;
+
+  if (!college?.name || !admin_email || !admin_password || !admin_name || !plan_id) {
+    return error(res, 'All fields required: college, plan_id, admin details');
+  }
+
+  const passwordErr = validatePassword(admin_password);
+  if (passwordErr) return error(res, passwordErr);
+
+  try {
+    // 1. Create college record
+    const { data: newCollege, error: colErr } = await supabaseAdmin
+      .from('colleges')
+      .insert({
+        name: college.name.trim(),
+        code: college.code?.trim() || college.name.substring(0, 6).toUpperCase(),
+        type: college.type || 'Engineering',
+        address: [college.city, college.state].filter(Boolean).join(', '),
+        principal_email: college.principal_email?.trim() || admin_email,
+        phone: college.phone?.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (colErr) {
+      console.error('[onboard] College creation error:', colErr);
+      return error(res, 'Failed to create college record');
+    }
+
+    // 2. Create admin user
+    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      email: admin_email.toLowerCase().trim(),
+      password: admin_password,
+      email_confirm: true,
+      user_metadata: { display_name: admin_name, role: 'admin' },
+    });
+
+    if (authErr) {
+      // Rollback college if user creation fails
+      await supabaseAdmin.from('colleges').delete().eq('id', newCollege.id);
+      if (authErr.message.includes('already been registered')) {
+        return error(res, 'An account with this email already exists');
+      }
+      return error(res, authErr.message);
+    }
+
+    // 3. Set admin profile with college link
+    await supabaseAdmin
+      .from('profiles')
+      .upsert({
+        id: authData.user.id,
+        display_name: admin_name.trim(),
+        role: 'admin',
+        college_id: newCollege.id,
+      }, { onConflict: 'id' });
+
+    // 4. Start trial subscription
+    const now = new Date();
+    const trialEnd = new Date(now);
+    trialEnd.setDate(trialEnd.getDate() + 14);
+
+    await supabaseAdmin.from('subscriptions').insert({
+      college_id: newCollege.id,
+      admin_user_id: authData.user.id,
+      plan_id,
+      billing_cycle: 'monthly',
+      status: 'trialing',
+      amount_paid: 0,
+      trial_ends_at: trialEnd.toISOString(),
+      current_period_start: now.toISOString(),
+      current_period_end: trialEnd.toISOString(),
+    });
+
+    // 5. Send welcome email (async, non-blocking)
+    const { sendTrialWelcomeEmail, sendDemoRequestNotificationEmail } = require('../utils/billingEmails');
+    const PLAN_NAMES = { starter: 'Starter', growth: 'Growth', enterprise: 'Enterprise' };
+
+    sendTrialWelcomeEmail({
+      to: admin_email,
+      adminName: admin_name,
+      collegeName: college.name,
+      planName: PLAN_NAMES[plan_id] || plan_id,
+      trialEnds: trialEnd.toISOString(),
+    }).catch(() => {});
+
+    // Notify founder of new signup (only when SUPER_ADMIN_EMAIL is configured)
+    const FOUNDER_EMAIL = process.env.SUPER_ADMIN_EMAIL;
+    if (FOUNDER_EMAIL) {
+      sendDemoRequestNotificationEmail({
+        to: FOUNDER_EMAIL,
+        name: admin_name,
+        college: college.name,
+        phone: college.phone || 'N/A',
+        email: admin_email,
+        students: college.student_count || 'Not specified',
+      }).catch(() => {});
+    }
+
+    return success(res, {
+      message: 'College and admin account created successfully. Trial started!',
+      college_id: newCollege.id,
+      admin_email,
+      trial_ends: trialEnd.toISOString(),
+    }, 201);
+  } catch (err) {
+    console.error('[onboard] Unexpected error:', err);
+    return error(res, 'Onboarding failed. Please contact support.');
+  }
 });
 
 module.exports = router;

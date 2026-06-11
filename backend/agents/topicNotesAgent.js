@@ -1,4 +1,4 @@
-const { generateCompletion } = require('../config/ollama');
+const { generateCompletion } = require('../config/ai');
 
 /**
  * Generates structured study notes for a placement-prep topic at one of
@@ -52,9 +52,7 @@ const PACE_GUIDE = {
 
 class TopicNotesAgent {
   constructor() {
-    this.model = process.env.OLLAMA_NOTES_MODEL
-      || process.env.OLLAMA_DEFAULT_MODEL
-      || 'qwen2.5:1.5b';
+    this.model = 'claude';
     this.maxRetries = 1;
   }
 

@@ -1,46 +1,59 @@
-const { generateCompletion } = require('../config/ollama');
+/**
+ * SummaryAgent v2 — Lesson content summarizer
+ * Returns structured bullet-point summaries for Indian engineering students
+ */
+const AgentBase = require('./agentBase');
 
-class SummaryAgent {
+class SummaryAgent extends AgentBase {
   constructor() {
-    this.model = process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_DEFAULT_MODEL || 'tinyllama';
-    this.maxRetries = 1;
+    super('SummaryAgent', {
+      primaryModel: 'claude',
+      maxRetries: 2,
+      baseTimeoutMs: 60_000,
+      temperature: 0.25,
+    });
   }
 
-  buildPrompt(content) {
-    const truncated = content.length > 2000 ? content.substring(0, 2000) + '...' : content;
+  buildPrompt(content, options = {}) {
+    const { style = 'exam', maxPoints = 8 } = options;
+    const maxChars = 2000;
+    const truncated = content.length > maxChars ? content.substring(0, maxChars) + '...' : content;
 
-    return `Summarize this lesson into key points for student review.
+    const styleGuides = {
+      exam: 'Focus on exam-relevant definitions, formulas, and key concepts. Use terms a JNTU/VTU examiner would expect.',
+      revision: 'Quick revision bullets. Include mnemonics and memory aids where helpful.',
+      notes: 'Detailed study notes. Include examples and practical applications.',
+    };
+    const styleGuide = styleGuides[style] || styleGuides.exam;
+
+    return `You are a study material creator for Indian engineering students (JNTU/VTU/Anna University).
+
+${styleGuide}
+
+Summarize this content in up to ${maxPoints} concise bullet points:
 
 CONTENT:
 ${truncated}
 
-Return ONLY valid JSON, no other text:
-{"summary":"2-3 sentence overview","key_points":["Point 1","Point 2","Point 3"],"vocabulary":["Term: definition"],"difficulty_level":"beginner"}
-
-difficulty_level: "beginner" or "intermediate" or "advanced"`;
+Return ONLY valid JSON:
+{
+  "title": "Topic title inferred from content",
+  "key_points": ["Key concept 1", "Key concept 2"],
+  "important_terms": ["Term: definition"],
+  "exam_tip": "One useful exam strategy tip"
+}`;
   }
 
-  async summarize(content) {
-    let lastError;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        const response = await generateCompletion(
-          this.model,
-          this.buildPrompt(content),
-          { temperature: 0.3, max_tokens: 768, timeoutMs: 60_000 }
-        );
-
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) return JSON.parse(jsonMatch[0]);
-        return JSON.parse(response);
-      } catch (err) {
-        lastError = err;
-        console.warn(`SummaryAgent attempt ${attempt + 1} failed:`, err.message);
-      }
+  validateResponse(parsed) {
+    if (!Array.isArray(parsed.key_points) || parsed.key_points.length === 0) {
+      throw new Error('Missing key_points array');
     }
+    return true;
+  }
 
-    console.error('SummaryAgent all retries exhausted');
-    throw new Error('AI generated invalid summary format. Please try again.');
+  async summarize(content, options = {}) {
+    if (!content?.trim()) throw new Error('Content is required');
+    return super.generate([content, options], { maxTokens: 800 });
   }
 }
 

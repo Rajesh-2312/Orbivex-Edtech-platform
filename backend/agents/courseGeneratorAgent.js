@@ -1,52 +1,110 @@
-const { generateCompletion } = require('../config/ollama');
+/**
+ * CourseGeneratorAgent v2 — Expert-grade full course generation
+ * Generates course title, description, lessons, and rich content
+ * Indian engineering curriculum-aware
+ */
+const AgentBase = require('./agentBase');
 
-class CourseGeneratorAgent {
+const INDIAN_ENGINEERING_CONTEXT = `Context: Indian engineering college (B.Tech/B.E.), autonomous university system, JNTU/VTU/Anna University syllabus pattern. Students are in semesters 1-8. Include relevant Indian industry examples (TCS, Infosys, Wipro, Indian startups). Assessment style: theory + numerical problems.`;
+
+const DIFFICULTY_LEVELS = {
+  beginner: 'First or second year undergraduate, introductory concepts',
+  intermediate: 'Third year undergraduate, applied concepts with coding/design',
+  advanced: 'Fourth year or postgraduate, industry-level depth with case studies',
+};
+
+class CourseGeneratorAgent extends AgentBase {
   constructor() {
-    this.model = process.env.OLLAMA_COURSE_MODEL || process.env.OLLAMA_DEFAULT_MODEL || 'tinyllama';
-    this.maxRetries = 1;
+    super('CourseGeneratorAgent', {
+      primaryModel: 'claude',
+      maxRetries: 2,
+      baseTimeoutMs: 180_000,
+      temperature: 0.45,
+    });
+    this.baseMaxTokens = 2500;
   }
 
-  buildPrompt(subject, { difficulty = 'beginner', numLessons = 4, audience = 'undergraduate students' } = {}) {
-    return `Generate a ${difficulty} course on "${subject}" for ${audience} with ${numLessons} lessons.
+  buildPrompt(subject, options = {}) {
+    const {
+      difficulty = 'intermediate',
+      numLessons = 5,
+      audience = 'B.Tech students',
+      includeObjectives = true,
+    } = options;
 
-Return ONLY valid JSON, no other text:
-{"title":"Course title","description":"Short description","category":"technical","difficulty":"${difficulty}","lessons":[{"title":"Lesson 1","description":"Summary","content_text":"100 word lesson body","duration_minutes":15}]}`;
+    const difficultyDesc = DIFFICULTY_LEVELS[difficulty] || DIFFICULTY_LEVELS.intermediate;
+
+    return `You are a senior curriculum designer for Indian engineering colleges.
+
+${INDIAN_ENGINEERING_CONTEXT}
+
+Create a complete course on: "${subject}"
+Difficulty: ${difficulty} (${difficultyDesc})
+Target: ${audience}
+Lessons: exactly ${numLessons}
+
+Each lesson must have:
+- A clear, specific title
+- A 2-sentence description
+- 150-200 word content_text (introduction, key concepts, example)
+- duration_minutes (15-45 based on depth)
+
+Return ONLY valid JSON:
+{
+  "title": "Specific course title",
+  "description": "2-sentence course description for college catalog",
+  "category": "technical|soft-skills|placement|language",
+  "difficulty": "${difficulty}",
+  "estimated_hours": <number>,
+  "learning_objectives": ["Students will...", "Students will..."],
+  "lessons": [
+    {
+      "title": "Lesson title",
+      "description": "2-sentence description",
+      "content_text": "150-200 word lesson body with concepts and examples",
+      "duration_minutes": 30
+    }
+  ]
+}`;
+  }
+
+  validateResponse(parsed) {
+    if (!parsed.title) throw new Error('Missing course title');
+    if (!Array.isArray(parsed.lessons) || parsed.lessons.length === 0) throw new Error('Missing lessons array');
+    for (const lesson of parsed.lessons) {
+      if (!lesson.title) throw new Error('Lesson missing title');
+      if (!lesson.content_text) throw new Error('Lesson missing content_text');
+    }
+    return true;
+  }
+
+  postProcess(parsed) {
+    // Ensure all fields have sensible defaults
+    return {
+      title: parsed.title.trim(),
+      description: parsed.description || `A comprehensive course on ${parsed.title}.`,
+      category: parsed.category || 'technical',
+      difficulty: parsed.difficulty || 'intermediate',
+      estimated_hours: parsed.estimated_hours || Math.ceil(parsed.lessons.length * 0.5),
+      learning_objectives: parsed.learning_objectives || [],
+      lessons: parsed.lessons.map((l, i) => ({
+        title: l.title?.trim() || `Lesson ${i + 1}`,
+        description: l.description || '',
+        content_text: l.content_text || '',
+        duration_minutes: Number(l.duration_minutes) || 30,
+        sort_order: i + 1,
+      })),
+    };
   }
 
   async generate(subject, options = {}) {
-    if (!subject || !subject.trim()) {
-      throw new Error('subject is required');
-    }
+    if (!subject?.trim()) throw new Error('Subject is required');
 
-    // Cap lessons for lightweight model
-    if (options.numLessons) {
-      options.numLessons = Math.min(options.numLessons, 6);
-    }
+    const numLessons = Math.min(Math.max(options.numLessons || 5, 2), 8);
+    const timeoutMs = Math.max(120_000, numLessons * 25_000);
+    const maxTokens = Math.max(2000, numLessons * 400);
 
-    let lastError;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        const response = await generateCompletion(
-          this.model,
-          this.buildPrompt(subject, options),
-          { temperature: 0.4, max_tokens: 2048, timeoutMs: 120_000 }
-        );
-
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : response);
-
-        if (!parsed.title || !Array.isArray(parsed.lessons) || parsed.lessons.length === 0) {
-          throw new Error('missing title or lessons');
-        }
-        return parsed;
-      } catch (err) {
-        lastError = err;
-        console.warn(`CourseGeneratorAgent attempt ${attempt + 1} failed:`, err.message);
-      }
-    }
-
-    console.error('CourseGeneratorAgent all retries exhausted');
-    throw new Error('AI generated invalid course format. Please try again.');
+    return super.generate([subject, { ...options, numLessons }], { maxTokens, timeoutMs });
   }
 }
 

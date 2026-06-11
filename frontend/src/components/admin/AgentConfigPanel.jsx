@@ -11,7 +11,15 @@ const AGENT_TYPES = [
   { key: 'recommendation', label: 'Recommendations', description: 'Suggest next lessons based on progress' },
 ];
 
-const MODELS = ['phi3', 'mistral'];
+/* Customer-facing tiers — map to managed AI models behind the scenes.
+   Stored values ('standard' / 'advanced') are resolved server-side. */
+const TIERS = [
+  { value: 'standard', label: 'Standard — fast, everyday tasks' },
+  { value: 'advanced', label: 'Advanced — highest quality' },
+];
+
+/* Normalize any stored value (incl. legacy model names) to a tier */
+const toTier = (m) => (m === 'advanced' || m === 'mistral' ? 'advanced' : 'standard');
 
 export default function AgentConfigPanel({ educatorId, addToast }) {
   const [configs, setConfigs] = useState([]);
@@ -56,7 +64,7 @@ export default function AgentConfigPanel({ educatorId, addToast }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
         {AGENT_TYPES.map((agent) => {
           const existing = configs.find((c) => c.agent_type === agent.key);
-          const currentModel = existing?.model_name || 'phi3';
+          const currentModel = toTier(existing?.model_name);
           const currentCount = existing?.agent_count || 1;
 
           return (
@@ -68,14 +76,14 @@ export default function AgentConfigPanel({ educatorId, addToast }) {
               <p className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '12px' }}>{agent.description}</p>
 
               <div style={{ marginBottom: '8px' }}>
-                <label className="input-label" style={{ fontSize: '0.75rem' }}>Model</label>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>AI Tier</label>
                 <select
                   className="admin-select"
                   value={currentModel}
                   onChange={(e) => saveConfig(agent.key, e.target.value, currentCount)}
                   style={{ fontSize: '0.85rem' }}
                 >
-                  {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {TIERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
 

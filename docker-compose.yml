@@ -15,36 +15,25 @@ services:
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_KEY: ${SUPABASE_KEY}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
-      OLLAMA_URL: http://ollama:11434
-      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-qwen2.5:1.5b}
-      OLLAMA_NOTES_MODEL: ${OLLAMA_NOTES_MODEL:-}
-      OLLAMA_QUIZ_MODEL: ${OLLAMA_QUIZ_MODEL:-}
-      OLLAMA_COURSE_MODEL: ${OLLAMA_COURSE_MODEL:-}
-      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
-      NVIDIA_MODEL: ${NVIDIA_MODEL:-meta/llama-3.3-70b-instruct}
-      NVIDIA_BASE_URL: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
       JWT_SECRET: ${JWT_SECRET}
       REDIS_URL: redis://redis:6379
+      # AI — NVIDIA API (primary LLM for all agents)
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      NVIDIA_MODEL: ${NVIDIA_MODEL:-meta/llama-3.3-70b-instruct}
+      NVIDIA_BASE_URL: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      NVIDIA_MODEL_STANDARD: ${NVIDIA_MODEL_STANDARD:-meta/llama-3.1-8b-instruct}
+      NVIDIA_MODEL_ADVANCED: ${NVIDIA_MODEL_ADVANCED:-meta/llama-3.3-70b-instruct}
+      # Embeddings (RAG tutor) still use Ollama — reach it by service name
+      OLLAMA_URL: http://ollama:11434
+      # Optional
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
     depends_on:
-      - ollama
       - redis
     volumes:
       - ./backend:/app
       - /app/node_modules
-    restart: unless-stopped
-    networks:
-      - orbivex-net
-
-  # ─── Ollama LLM ───
-  ollama:
-    image: ollama/ollama:latest
-    container_name: orbivex-ollama
-    ports:
-      - "11435:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      OLLAMA_HOST: 0.0.0.0:11434
     restart: unless-stopped
     networks:
       - orbivex-net
@@ -62,7 +51,6 @@ services:
       - orbivex-net
 
 volumes:
-  ollama_data:
   redis_data:
 
 networks:

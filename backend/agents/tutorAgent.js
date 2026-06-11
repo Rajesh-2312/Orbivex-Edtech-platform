@@ -1,10 +1,8 @@
-const { generateCompletion } = require('../config/ollama');
+const { generateCompletion } = require('../config/ai');
 const { supabaseAdmin } = require('../config/supabase');
 const { embedText } = require('./embed');
 
-const TUTOR_MODEL = process.env.OLLAMA_TUTOR_MODEL
-  || process.env.OLLAMA_DEFAULT_MODEL
-  || 'qwen2.5:1.5b';
+const TUTOR_MODEL = 'claude';
 
 const MAX_CHUNKS = 5;
 const MAX_HISTORY_TURNS = 6;
@@ -66,7 +64,7 @@ async function answer({ lessonId, userId, message, history }) {
     max_tokens: ANSWER_MAX_TOKENS,
     timeoutMs: 90_000,
     format: null,           // prose, not JSON
-    forceOllama: true,      // predictable cost; no NVIDIA quota burn
+    
     cache: false,           // every student turn is unique
   });
 

@@ -119,7 +119,7 @@ router.get('/courses', async (req, res) => {
   try {
     const { data, error: dbErr } = await supabaseAdmin
       .from('courses')
-      .select('*, profiles!courses_created_by_fkey(display_name)')
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (dbErr) throw dbErr;

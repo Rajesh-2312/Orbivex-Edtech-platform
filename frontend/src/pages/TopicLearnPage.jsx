@@ -80,7 +80,7 @@ export default function TopicLearnPage() {
         setNotes(isNotesUseful(payload.notes) ? payload.notes : null);
       })
       .catch((err) => {
-        setErrorMsg(err.response?.data?.error || 'Failed to generate notes. Make sure the AI model is pulled in Ollama.');
+        setErrorMsg(err.response?.data?.error || 'Could not generate notes right now. Please try again in a moment.');
       })
       .finally(() => setSeeding(false));
   };

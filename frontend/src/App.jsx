@@ -26,6 +26,22 @@ import TopicPracticePage from './pages/TopicPracticePage';
 import CalendarPage from './pages/CalendarPage';
 import NotificationsPage from './pages/NotificationsPage';
 import Toast from './components/ui/Toast';
+import LSRWPage from './pages/lsrw/LSRWPage';
+import LSRWListeningPage from './pages/lsrw/LSRWListeningPage';
+import LSRWSpeakingPage from './pages/lsrw/LSRWSpeakingPage';
+import LSRWReadingPage from './pages/lsrw/LSRWReadingPage';
+import LSRWWritingPage from './pages/lsrw/LSRWWritingPage';
+import LSRWResultPage from './pages/lsrw/LSRWResultPage';
+import TPODashboardPage from './pages/TPODashboardPage';
+import PlacementDrivesPage from './pages/PlacementDrivesPage';
+import PlacementAnalyticsPage from './pages/PlacementAnalyticsPage';
+import PlacementProfilePage from './pages/PlacementProfilePage';
+import OnboardingPage from './pages/OnboardingPage';
+import SaasAdminPage from './pages/SaasAdminPage';
+import CodingPracticePage from './pages/CodingPracticePage';
+import ResumeBuilderPage from './pages/ResumeBuilderPage';
+import SkillGapPage from './pages/SkillGapPage';
+import PYQPage from './pages/PYQPage';
 
 function ProtectedRoute({ children }) {
   const user = useAuthStore((s) => s.user);
@@ -37,6 +53,14 @@ function AdminRoute({ children }) {
   const user = useAuthStore((s) => s.user);
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  return children;
+}
+
+// TPO + admin can access placement management routes
+function PlacementRoute({ children }) {
+  const user = useAuthStore((s) => s.user);
+  if (!user) return <Navigate to="/login" replace />;
+  if (!['admin', 'tpo', 'teacher'].includes(user.role)) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -70,6 +94,12 @@ export default function App() {
           <Route path="/login" element={<AuthRoute><LoginPage /></AuthRoute>} />
           <Route path="/signup" element={<AuthRoute><SignupPage /></AuthRoute>} />
 
+          {/* Self-service onboarding (no auth required) */}
+          <Route path="/onboarding" element={<OnboardingPage />} />
+
+          {/* Founder SaaS admin portal (standalone, own auth check) */}
+          <Route path="/saas-admin" element={<SaasAdminPage />} />
+
           {/* Protected routes (inside Layout) */}
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<DashboardPage />} />
@@ -91,6 +121,24 @@ export default function App() {
             <Route path="/tests/:id/result" element={<TestResultPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
+            {/* Placement routes — TPO / admin / teacher */}
+            <Route path="/placement" element={<PlacementRoute><TPODashboardPage /></PlacementRoute>} />
+            <Route path="/placement/drives" element={<PlacementRoute><PlacementDrivesPage /></PlacementRoute>} />
+            <Route path="/placement/analytics" element={<PlacementRoute><PlacementAnalyticsPage /></PlacementRoute>} />
+            <Route path="/placement/profiles" element={<PlacementRoute><PlacementProfilePage /></PlacementRoute>} />
+            {/* Student — own placement profile */}
+            <Route path="/my-placement" element={<PlacementProfilePage />} />
+            {/* LSRW Skills routes */}
+            <Route path="/coding" element={<CodingPracticePage />} />
+            <Route path="/resume" element={<ResumeBuilderPage />} />
+            <Route path="/skill-gap" element={<SkillGapPage />} />
+            <Route path="/pyq" element={<PYQPage />} />
+            <Route path="/lsrw" element={<LSRWPage />} />
+            <Route path="/lsrw/listening" element={<LSRWListeningPage />} />
+            <Route path="/lsrw/speaking" element={<LSRWSpeakingPage />} />
+            <Route path="/lsrw/reading" element={<LSRWReadingPage />} />
+            <Route path="/lsrw/writing" element={<LSRWWritingPage />} />
+            <Route path="/lsrw/result" element={<LSRWResultPage />} />
           </Route>
 
           {/* Fallback */}

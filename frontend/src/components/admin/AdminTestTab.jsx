@@ -357,13 +357,13 @@ export default function AdminTestTab({ addToast }) {
       const raw = err.response?.data?.error || err.message || 'AI generation failed';
       let hint = null;
       if (/more system memory|requires more/i.test(raw)) {
-        hint = 'The selected Ollama model is too large for your Docker memory. Switch to qwen2.5:1.5b (set OLLAMA_QUIZ_MODEL=qwen2.5:1.5b) or raise Docker → Settings → Resources → Memory.';
+        hint = 'The AI service is under heavy load right now. Please try again in a moment — if it keeps happening, contact Orbivex support.';
       } else if (/model .* not found|pull model/i.test(raw)) {
-        hint = 'The model is not pulled. Run: docker compose exec ollama ollama pull qwen2.5:1.5b';
+        hint = 'The AI service is still warming up. Please try again shortly, or contact Orbivex support if it continues.';
       } else if (/ECONNREFUSED|ollama|fetch failed/i.test(raw)) {
-        hint = 'Cannot reach Ollama. Make sure the ollama container is running: docker compose ps';
+        hint = 'The AI service is temporarily unavailable. Please try again in a moment — our team is notified automatically.';
       } else if (/invalid quiz format|JSON/i.test(raw)) {
-        hint = 'The model returned malformed JSON. Try again, or use a smaller num_questions / different content.';
+        hint = 'The AI returned an unexpected response. Please try again, or generate fewer questions at a time.';
       }
       setGenError({ message: raw, hint });
       addToast(raw, 'error');
@@ -1058,7 +1058,7 @@ export default function AdminTestTab({ addToast }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', padding: '12px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
             <HiOutlineSparkles size={20} style={{ color: 'var(--primary-500)' }} />
             <span style={{ fontSize: '0.85rem' }}>
-              Generate MCQ questions using AI (Ollama) and save them directly to the Question Bank. Academic questions go under the <strong>Academic</strong> block; company-specific questions appear under the matching <strong>company name</strong>.
+              Generate MCQ questions using Orbivex AI and save them directly to the Question Bank. Academic questions go under the <strong>Academic</strong> block; company-specific questions appear under the matching <strong>company name</strong>.
             </span>
           </div>
 

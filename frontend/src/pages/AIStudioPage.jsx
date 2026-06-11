@@ -69,7 +69,7 @@ export default function AIStudioPage() {
         <div>
           <div className="ai-studio-eyebrow">
             <HiOutlineSparkles size={14} />
-            <span>Powered by Ollama · qwen2.5</span>
+            <span>Powered by Orbivex AI</span>
           </div>
           <h1 className="ai-studio-title">AI Studio</h1>
           <p className="ai-studio-sub">Six agents, one workspace. Generate, grade, and recommend without leaving the page.</p>

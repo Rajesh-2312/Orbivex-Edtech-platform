@@ -219,7 +219,7 @@ function CoursesPanel({ addToast }) {
   const [genForm, setGenForm] = useState({ subject: '', difficulty: 'beginner', num_lessons: 5, audience: 'undergraduate students', publish: false });
 
   const GEN_STAGES = [
-    { label: 'Connecting to Ollama', pct: 10 },
+    { label: 'Connecting to AI engine', pct: 10 },
     { label: 'Drafting course outline', pct: 30 },
     { label: 'Generating lessons', pct: 65 },
     { label: 'Saving to database', pct: 90 },
@@ -299,7 +299,7 @@ function CoursesPanel({ addToast }) {
       setGenForm({ subject: '', difficulty: 'beginner', num_lessons: 5, audience: 'undergraduate students', publish: false });
       loadCourses();
     } catch (err) {
-      addToast(err.response?.data?.error || 'AI generation failed (is Ollama running & phi3 pulled?)', 'error');
+      addToast(err.response?.data?.error || 'AI generation is temporarily unavailable. Please try again in a moment.', 'error');
     }
     setGenerating(false);
   };
@@ -406,7 +406,7 @@ function CoursesPanel({ addToast }) {
       <Modal isOpen={showGenModal} onClose={() => !generating && setShowGenModal(false)} title="Generate Course with AI">
         <div className="admin-form">
           <p className="text-muted" style={{ marginTop: 0, fontSize: '13px' }}>
-            The AI will draft a full course outline with lessons. Requires Ollama + phi3 model.
+            Orbivex AI will draft a full course outline with lessons in under a minute.
           </p>
           <Input
             label="Subject"

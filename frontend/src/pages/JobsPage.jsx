@@ -211,7 +211,7 @@ export default function JobsPage() {
                   key={type}
                   onClick={() => setTypeFilter(type)}
                   style={{
-                    padding: '7px 14px', border: 'none', borderRadius: 'var(--radius-full)',
+                    padding: '7px 14px', borderRadius: 'var(--radius-full)',
                     cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500,
                     transition: 'all 0.18s',
                     background: typeFilter === type ? 'rgba(249,115,22,0.18)' : 'rgba(255,255,255,0.04)',
