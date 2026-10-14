@@ -16,7 +16,7 @@
 6. [Backend API](#6-backend-api)
 7. [AI Agents](#7-ai-agents)
 8. [Admin Dashboard](#8-admin-dashboard)
-9. [Docker Compose](#9-docker-compose)
+9. [Runtime (no Docker)](#9-runtime-no-docker)
 10. [Project Structure](#10-project-structure)
 11. [Environment Variables](#11-environment-variables)
 12. [Running the Project](#12-running-the-project)
@@ -28,7 +28,7 @@
 
 ## 1. Project Overview
 
-**Orbivex** is an AI-powered EdTech platform designed for 4,000+ students across multiple colleges. It delivers a full learning management stack plus a career pipeline, and every heavy "content" task (quiz creation, grading, plagiarism, course drafting) is handled by self-hosted LLM agents running on Ollama — no third-party AI costs.
+**Orbivex** is an AI-powered EdTech platform designed for 4,000+ students across multiple colleges. It delivers a full learning management stack plus a career pipeline, and every heavy "content" task (quiz creation, grading, plagiarism, course drafting) is handled by LLM agents calling the **NVIDIA NIM API** (primary) with **OpenRouter** as an automatic fallback.
 
 | Capability | Description |
 |---|---|
@@ -53,9 +53,9 @@
 | **Frontend** | React 18 + Vite + Vanilla CSS | Maximum control over premium animations, no Tailwind churn |
 | **Backend** | Node.js + Express | Simple, fast, REST API |
 | **Database** | Supabase PostgreSQL | Free tier, scalable, built-in auth & RLS |
-| **AI/LLM** | Ollama in Docker — default `qwen2.5:1.5b` (~1 GB); optional `phi3` / `mistral` | Free, self-hosted, no API costs. Small default fits ~4 GiB Docker hosts |
+| **AI/LLM** | NVIDIA NIM API (primary) + OpenRouter (fallback) — default `meta/llama-3.3-70b-instruct` | OpenAI-compatible APIs, no local GPU needed, automatic provider failover |
 | **State** | Zustand | Lightweight, no boilerplate |
-| **Containerization** | Docker Compose | Single-command deployment |
+| **Runtime** | Plain Node.js 20 (no Docker) | `node server.js` + `npm run dev`; deploys via Railway Nixpacks |
 
 ---
 
@@ -70,29 +70,22 @@
 └──────────────────────────────┬──────────────────────────────────┘
                                │ REST API (JSON, JWT in Authorization)
                                ▼
-┌───────────────────── DOCKER COMPOSE (network: orbivex-net) ─────┐
+┌─────────────────────────────────────────────────────────────────┐
+│  orbivex-api  (Node.js 20 + Express, port 3001)                 │
 │                                                                 │
-│  ┌──────────────────────────┐   ┌─────────────────────────────┐ │
-│  │  orbivex-api              │   │  orbivex-ollama              │ │
-│  │  Node.js 20 + Express     │──▶│  ollama/ollama:latest        │ │
-│  │  Port 3001 (host 3001)    │   │  Models: qwen2.5:1.5b        │ │
-│  │                           │   │          (opt) phi3, mistral │ │
-│  │  /api/auth                │   │  Port 11434 (host 11435)     │ │
-│  │  /api/courses             │   └─────────────────────────────┘ │
-│  │  /api/lessons             │                                   │
-│  │  /api/quizzes             │   ┌─────────────────────────────┐ │
-│  │  /api/progress            │──▶│  orbivex-redis               │ │
-│  │  /api/jobs                │   │  redis:7-alpine              │ │
-│  │  /api/analytics           │   │  Port 6379                   │ │
-│  │  /api/ai                  │   └─────────────────────────────┘ │
-│  │  /api/admin               │                                   │
-│  │  /api/health              │   ┌─────────────────────────────┐ │
-│  └──────────────┬────────────┘   │  Supabase (External)         │ │
-│                 │                 │  - PostgreSQL + RLS          │ │
-│                 └────────────────▶│  - Auth (email + password)   │ │
-│                                   │  - Storage (videos/docs)     │ │
-│                                   │  - Realtime                  │ │
-│                                   └─────────────────────────────┘ │
+│  /api/auth /api/courses /api/lessons /api/quizzes               │
+│  /api/progress /api/jobs /api/analytics /api/ai /api/admin      │
+│  /api/health                                                    │
+│         │                          │                            │
+│         ▼                          ▼                            │
+│  ┌───────────────────────┐  ┌────────────────────────────────┐ │
+│  │  Supabase (External)  │  │  AI Providers (External)       │ │
+│  │  - PostgreSQL + RLS   │  │  1. NVIDIA NIM API (primary)   │ │
+│  │  - Auth (email+pass)  │  │     integrate.api.nvidia.com   │ │
+│  │  - Storage            │  │     + embeddings (RAG tutor)   │ │
+│  │  - Realtime           │  │  2. OpenRouter (fallback)      │ │
+│  └───────────────────────┘  │     openrouter.ai/api/v1       │ │
+│                             └────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,7 +96,7 @@
 3. `roleMiddleware('admin')` (if needed) checks `req.user.role`
 4. Route handler uses `supabaseAdmin` (service-role key) for data access (bypasses RLS)
 5. For `/api/ai/*` and `/api/admin/courses/generate`, handler calls an **Agent** in `backend/agents/`
-6. Agent hits Ollama over the Docker network (`http://ollama:11434`) and returns structured JSON
+6. Agent calls `generateCompletion()` in `backend/config/ai.js` — NVIDIA NIM first, OpenRouter fallback — and returns structured JSON
 7. Response formatted by `utils/response.js` → `{ success, data }` or `{ success: false, error }`
 
 ---
@@ -164,7 +157,7 @@ Users sign up and log in with **email + password**. Supabase Auth handles all to
 
 | Component | Where | Purpose |
 |---|---|---|
-| AI Course Generation progress bar | [AdminPage.jsx — CoursesPanel](frontend/src/pages/AdminPage.jsx) | Staged progress (Connecting → Drafting → Generating lessons → Saving → Finalizing) with gradient shimmer and elapsed-seconds counter while the Ollama call runs |
+| AI Course Generation progress bar | [AdminPage.jsx — CoursesPanel](frontend/src/pages/AdminPage.jsx) | Staged progress (Connecting → Drafting → Generating lessons → Saving → Finalizing) with gradient shimmer and elapsed-seconds counter while the AI generation runs |
 | Agent Config Panel | [AgentConfigPanel.jsx](frontend/src/components/admin/AgentConfigPanel.jsx) | Per-educator AI agent scaling slider (1–10 parallel agents) |
 | Test Paper Builder | [TestPaperBuilder.jsx](frontend/src/components/admin/TestPaperBuilder.jsx) | Drag-and-drop question ordering with mark assignment |
 
@@ -273,20 +266,28 @@ Node.js + Express, fully Dockerized. All routes return consistent JSON:
 
 ## 7. AI Agents
 
-Modular agents in `backend/agents/` that call Ollama's local LLM. Every agent's model is read from env vars with `qwen2.5:1.5b` as the baseline default so the stack works on small Docker hosts.
+Modular agents in `backend/agents/` that call `generateCompletion()` in `backend/config/ai.js` — the single chokepoint for all LLM traffic. It calls the **NVIDIA NIM API** first and automatically falls back to **OpenRouter** if NIM fails, times out, or is unkeyed. If neither key is set, AI features are disabled with a clear error.
 
-| Agent | Default model | Env override | Purpose |
-|-------|---------------|--------------|---------|
-| `quizAgent.js` | `qwen2.5:1.5b` | `OLLAMA_QUIZ_MODEL` | Generate MCQ quizzes from lesson content (also used by `/api/admin/question-bank/generate*`) |
-| `courseGeneratorAgent.js` | `qwen2.5:1.5b` | `OLLAMA_COURSE_MODEL` | Generate a full course outline (title, description, category, lessons) from a subject |
-| `gradingAgent.js` | `mistral` | — | Grade assignments with rubric-based feedback |
-| `plagiarismAgent.js` | `mistral` | — | Check assignment originality |
-| `recommendAgent.js` | `phi3` | — | Suggest next lessons based on student progress |
-| `summaryAgent.js` | `mistral` | — | Summarize lesson content into bullet points |
+Agents pass a friendly tier label rather than a raw model id:
 
-`OLLAMA_DEFAULT_MODEL` acts as a global fallback for agents that respect env overrides. Ollama config lives in `backend/config/ollama.js`.
+| Tier | NVIDIA NIM model (default) | OpenRouter model (default) |
+|------|---------------------------|----------------------------|
+| `standard` | `meta/llama-3.1-8b-instruct` | `meta-llama/llama-3.1-8b-instruct` |
+| `advanced` | `meta/llama-3.3-70b-instruct` | `meta-llama/llama-3.3-70b-instruct` |
 
-**Memory note:** `phi3` needs ~3.5 GiB RAM and `mistral` ~5 GiB. Docker Desktop's default container memory (~3.7 GiB on Windows WSL2) is below `phi3`'s threshold, so Ollama returns `model requires more system memory` and the agents 500. Either raise Docker → Settings → Resources → Memory, or stick with `qwen2.5:1.5b` (the current default, ~1 GB). Pull it with `docker compose exec ollama ollama pull qwen2.5:1.5b`.
+| Agent | Purpose |
+|-------|---------|
+| `quizAgent.js` | Generate MCQ quizzes from lesson content (also used by `/api/admin/question-bank/generate*`) |
+| `courseGeneratorAgent.js` | Generate a full course outline (title, description, category, lessons) from a subject |
+| `gradingAgent.js` | Grade assignments with rubric-based feedback |
+| `plagiarismAgent.js` | Check assignment originality |
+| `recommendAgent.js` | Suggest next lessons based on student progress |
+| `summaryAgent.js` | Summarize lesson content into bullet points |
+| `tutorAgent.js` | RAG-grounded lesson Q&A (uses NIM embeddings via `agents/embed.js`) |
+| `pyqAgent.js` | Company-style placement MCQ generation |
+| `topicNotesAgent.js` | Paced study notes (5 pace levels) |
+
+**Embeddings** (RAG tutor / semantic search) are NIM-only — `nvidia/nv-embedqa-e5-v5`, 1024-dim — because OpenRouter has no embeddings endpoint. `NVIDIA_API_KEY` is therefore required for tutor/RAG features even when OpenRouter handles chat.
 
 ---
 
@@ -363,23 +364,22 @@ Courses are gated per student using the `course_access` table.
 
 ```bash
 node scripts/admin-e2e-test.js              # full run
-node scripts/admin-e2e-test.js --skip-ai    # skip Ollama-dependent steps
+node scripts/admin-e2e-test.js --skip-ai    # skip AI-provider-dependent steps
 node scripts/admin-e2e-test.js --cleanup    # delete TEST_ rows and exit
 ```
 
-Requires Node 18+ (global `fetch`). AI steps need Ollama running with the configured model pulled (default `qwen2.5:1.5b`).
+Requires Node 18+ (global `fetch`). AI steps need `NVIDIA_API_KEY` (or `OPENROUTER_API_KEY`) set in `.env`.
 
-## 9. Docker Compose
+## 9. Runtime (no Docker)
 
-File: `docker-compose.yml`. Network: `orbivex-net`.
+The platform runs as two plain Node processes — no containers:
 
-| Service | Container name | Image | Port (host:container) |
-|---------|----------------|-------|----------------------|
-| `api` | `orbivex-api` | Custom (Node.js 20 Alpine) | 3001:3001 |
-| `ollama` | `orbivex-ollama` | `ollama/ollama:latest` | 11435:11434 |
-| `redis` | `orbivex-redis` | `redis:7-alpine` | 6379:6379 |
+| Process | Command | Port |
+|---------|---------|------|
+| Backend API | `node server.js` (from `backend/`) | 3001 |
+| Frontend dev server | `npm run dev` (from `frontend/`) | 5173 |
 
-The API service mounts `./backend` as a volume for live reload during development.
+`start.bat` launches both on Windows; `stop.bat` stops them. Production deploys via Railway Nixpacks (`railway.toml`).
 
 ---
 
@@ -388,7 +388,6 @@ The API service mounts `./backend` as a volume for live reload during developmen
 ```
 production1/
 ├── CLAUDE.md                     # This file
-├── docker-compose.yml            # Docker services (orbivex-api, orbivex-ollama, orbivex-redis)
 ├── .env                          # Environment variables (not committed)
 ├── supabase-setup.sql            # Database schema setup SQL
 │
@@ -443,7 +442,6 @@ production1/
 │           └── supabase.js       # Frontend Supabase client
 │
 ├── backend/                      # Express API (orbivex-api)
-│   ├── Dockerfile
 │   ├── package.json              # name: orbivex-api
 │   ├── server.js                 # Express setup; banner: "🎓 Orbivex API"
 │   ├── seed.js                   # Creates admin@orbivex.com / teacher@orbivex.com / student@orbivex.com
@@ -452,7 +450,7 @@ production1/
 │   │
 │   ├── config/
 │   │   ├── supabase.js           # Supabase clients (anon + service role)
-│   │   └── ollama.js             # Ollama connection config
+│   │   └── ai.js                 # LLM chokepoint: NVIDIA NIM + OpenRouter fallback
 │   │
 │   ├── middleware/
 │   │   ├── auth.js               # JWT verification, attaches req.user
@@ -486,7 +484,6 @@ production1/
 │
 └── scripts/
     ├── admin-e2e-test.js         # End-to-end admin surface smoke test
-    ├── init-ollama.sh            # Pulls default models into orbivex-ollama
     └── migrations/
         └── 2026_04_13_course_access.sql
 ```
@@ -495,7 +492,7 @@ production1/
 
 ## 11. Environment Variables
 
-File: `.env` (project root, loaded by Docker Compose)
+File: `.env` (project root; backend loads it via dotenv)
 
 | Variable | Description |
 |----------|-------------|
@@ -505,11 +502,16 @@ File: `.env` (project root, loaded by Docker Compose)
 | `JWT_SECRET` | JWT signing secret |
 | `NODE_ENV` | `development` or `production` |
 | `PORT` | API port (default: 3001) |
-| `OLLAMA_URL` | Ollama service URL (set by Docker: `http://ollama:11434`) |
-| `REDIS_URL` | Redis URL (set by Docker: `redis://redis:6379`) |
-| `OLLAMA_DEFAULT_MODEL` | Default model used by all agents. Fallback: `qwen2.5:1.5b` (~1 GB, fits on ~4 GiB Docker hosts) |
-| `OLLAMA_QUIZ_MODEL` | Override model for `quizAgent` only |
-| `OLLAMA_COURSE_MODEL` | Override model for `courseGeneratorAgent` only |
+| `NVIDIA_API_KEY` | NVIDIA NIM key (`nvapi-...`) — primary LLM provider + embeddings |
+| `NVIDIA_MODEL` | Default NIM model (`meta/llama-3.3-70b-instruct`) |
+| `NVIDIA_MODEL_STANDARD` / `NVIDIA_MODEL_ADVANCED` | Tier → NIM model mapping |
+| `NVIDIA_BASE_URL` | Default `https://integrate.api.nvidia.com/v1` |
+| `NVIDIA_EMBED_MODEL` | Embedding model (`nvidia/nv-embedqa-e5-v5`, 1024-dim) |
+| `OPENROUTER_API_KEY` | OpenRouter key (`sk-or-...`) — automatic fallback LLM provider |
+| `OPENROUTER_MODEL` | Default OpenRouter model (`meta-llama/llama-3.3-70b-instruct`) |
+| `OPENROUTER_MODEL_STANDARD` / `OPENROUTER_MODEL_ADVANCED` | Tier → OpenRouter model mapping |
+| `OPENROUTER_BASE_URL` | Default `https://openrouter.ai/api/v1` |
+| `AI_MAX_CONCURRENT` / `AI_CACHE_MAX` / `AI_CACHE_TTL_MS` | LLM throttle + response cache tuning |
 
 **Important**: Never commit `.env` to version control.
 
@@ -524,33 +526,26 @@ Run in **Supabase Dashboard → SQL Editor** in this order:
 1. [supabase-setup.sql](supabase-setup.sql) — base schema: profiles, courses, lessons, colleges, branches, sections, educators, question_bank, test_papers, jobs, enrollments, etc.
 2. [scripts/migrations/2026_04_13_course_access.sql](scripts/migrations/2026_04_13_course_access.sql) — `course_access` table (new in v2.1).
 
-Then seed sample accounts with `docker compose exec api node seed.js`.
+Then seed sample accounts with `node seed.js` (from `backend/`).
 
 ## 12. Running the Project
 
 ### Prerequisites
 
-- Docker Desktop running
-- Node.js 20+ (for frontend dev server)
+- Node.js 20+
+- `.env` at repo root with Supabase keys + `NVIDIA_API_KEY` (and optionally `OPENROUTER_API_KEY` for fallback)
 
 ### Start Everything
 
 ```bash
-# 1. Start backend services (orbivex-api + orbivex-ollama + orbivex-redis)
-docker compose up -d --build
+# 1. Install + start backend API (first time: npm install)
+cd backend && npm install && node server.js
 
-# 2. Pull the default AI model (first time only; ~1 GB)
-docker compose exec ollama ollama pull qwen2.5:1.5b
-# Optional larger models (only if Docker memory > 4 GiB):
-# docker compose exec ollama ollama pull phi3      # ~2.2 GB, needs ~3.5 GiB RAM
-# docker compose exec ollama ollama pull mistral   # ~4.4 GB, needs ~5 GiB RAM
-
-# 3. Install frontend dependencies (first time only)
-cd frontend && npm install
-
-# 4. Start frontend dev server
-npm run dev
+# 2. In a second terminal: install + start frontend dev server
+cd frontend && npm install && npm run dev
 ```
+
+On Windows, `start.bat` at the repo root does both.
 
 ### Access Points
 
@@ -558,13 +553,12 @@ npm run dev
 |---------|-----|
 | Frontend | http://localhost:5173 (or next available port) |
 | Backend API | http://localhost:3001 |
-| Ollama | http://localhost:11435 |
 | API Health | http://localhost:3001/api/health |
 
 ### Seed Sample Data
 
 ```bash
-docker compose exec api node seed.js
+cd backend && node seed.js
 ```
 
 ---
@@ -587,7 +581,7 @@ Created via `backend/seed.js`. The admin account has access to the Admin Panel a
 |-------|-------|--------|
 | 1. Foundation | Project setup, auth, layout, routing | Done |
 | 2. Courses & Content | Course browsing, enrollment, lessons, video player | Done |
-| 3. AI Agents | Ollama integration, quiz gen, grading, plagiarism, recommendations, course generation | Done |
+| 3. AI Agents | LLM integration, quiz gen, grading, plagiarism, recommendations, course generation | Done |
 | 4. Dashboard & Analytics | Student progress, charts, stats | Done |
 | 5. Jobs & Admin | Job board, admin dashboard, multi-tenant org model | Done |
 | 6. Rebrand to Orbivex | Name, logos, container names, credentials | Done |
@@ -683,8 +677,8 @@ STUDENT
 
 ### Production Setup
 
-- Self-hosted on VPS with Docker Compose
-- Frontend built with `vite build`, served via Nginx or CDN
+- Backend deployed on Railway (Nixpacks, `railway.toml`) or any Node 20 host
+- Frontend built with `vite build`, served via Netlify/Nginx/CDN
 - Supabase handles database scaling (upgrade to Pro at ~4000 users)
 - Cloudflare free tier for CDN and DDoS protection
 
@@ -694,8 +688,8 @@ STUDENT
 |---------|----------|
 | Database at 4000 users | Supabase Pro ($25/mo) for 8GB storage, 300 connections |
 | Video delivery | Cloudflare CDN (free) + HLS adaptive streaming |
-| AI response time | Dedicated GPU server if heavy usage; `qwen2.5:1.5b` is fastest default |
-| API throughput | Redis caching for frequently accessed data |
+| AI response time | Tune tier models (`standard` for light tasks); in-memory LRU cache in `config/ai.js` absorbs repeats |
+| AI provider outage | OpenRouter fallback kicks in automatically when NIM fails |
 
 ---
 
@@ -713,7 +707,7 @@ When working on this codebase, lean on these built-in Claude Code skills at the 
 | **graphify** | When orienting a new developer or auditing the agent graph. Generates a knowledge graph from the codebase. |
 
 Skills NOT generally relevant here:
-- `claude-api` — we use Ollama + NVIDIA NIM, not the Anthropic SDK.
+- `claude-api` — we use NVIDIA NIM + OpenRouter, not the Anthropic SDK.
 - `init` — `CLAUDE.md` already exists (this file).
 - `keybindings-help` / `update-config` — IDE/CLI plumbing, not project code.
 
