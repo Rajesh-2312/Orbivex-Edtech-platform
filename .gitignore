@@ -2,6 +2,10 @@ node_modules/
 dist/
 .env
 .env.local
+.env.*
+!.env.example
+.vercel/
+.env*.backup
 *.log
 .DS_Store
 Thumbs.db
@@ -26,3 +30,8 @@ Orbivex-Edtech-platform.zip
 
 # Per-user agent / IDE state
 .claude/
+
+# MediaPipe WASM runtime — ~35MB, regenerated from node_modules by
+# frontend/scripts/vendor-mediapipe.mjs on postinstall. The face_landmarker.task
+# model beside it IS committed: it is not on npm and cannot be re-fetched offline.
+frontend/public/mediapipe/wasm/

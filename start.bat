@@ -8,54 +8,54 @@ echo    Orbivex EdTech Platform - Startup
 echo  =============================================
 echo.
 
-:: ─── Check Docker ───
-docker info >nul 2>&1
+:: ─── Check Node.js ───
+node --version >nul 2>&1
 if errorlevel 1 (
-  echo  [ERROR] Docker Desktop is not running.
-  echo  Please start Docker Desktop first, then re-run this script.
+  echo  [ERROR] Node.js is not installed or not on PATH.
+  echo  Install Node.js 20+ from https://nodejs.org and re-run this script.
   echo.
   pause
   exit /b 1
 )
-echo  [OK] Docker Desktop is running.
+echo  [OK] Node.js found.
 
-:: ─── Start Backend Services ───
-echo.
-echo  Starting backend services (API + Ollama + Redis)...
-docker compose up -d --build
-if errorlevel 1 (
-  echo  [ERROR] docker compose failed. Check the output above.
-  pause
-  exit /b 1
-)
-echo  [OK] Backend services started.
-
-:: ─── Pull AI model if needed ───
-echo.
-echo  Checking AI model (tinyllama)...
-docker compose exec -T ollama ollama list 2>nul | findstr "tinyllama" >nul
-if errorlevel 1 (
-  echo  Pulling tinyllama model (first-time only, ~600 MB)...
-  docker compose exec -T ollama ollama pull tinyllama
-) else (
-  echo  [OK] tinyllama model already present.
+:: ─── Install backend dependencies (first time only) ───
+if not exist "backend\node_modules" (
+  echo  Installing backend dependencies...
+  pushd backend
+  call npm install
+  popd
 )
 
-:: ─── Start Frontend ───
-echo.
-echo  Starting frontend dev server...
-echo  (It will open at http://localhost:5173)
-echo.
-echo  =============================================
-echo    Services Running:
-echo    Frontend  ->  http://localhost:5173
-echo    Backend   ->  http://localhost:3001
-echo    Ollama    ->  http://localhost:11435
-echo  =============================================
-echo.
-echo  Press Ctrl+C in this window to stop the frontend.
-echo  To stop backend: run  docker compose down
-echo.
+:: ─── Install frontend dependencies (first time only) ───
+if not exist "frontend\node_modules" (
+  echo  Installing frontend dependencies...
+  pushd frontend
+  call npm install
+  popd
+)
 
-cd frontend
-npm run dev
+:: ─── Start Backend API ───
+echo.
+echo  Starting backend API (http://localhost:3001)...
+start "Orbivex API" cmd /k "cd backend && node --env-file=../.env server.js"
+
+:: ─── Start Frontend Dev Server ───
+echo  Starting frontend (http://localhost:5173)...
+start "Orbivex Frontend" cmd /k "cd frontend && npm run dev"
+
+echo.
+echo  =============================================
+echo    Orbivex is starting.
+echo    Frontend : http://localhost:5173
+echo    API      : http://localhost:3001
+echo    Health   : http://localhost:3001/api/health
+echo.
+echo    AI: NVIDIA NIM (primary) + OpenRouter
+echo    (fallback). Set NVIDIA_API_KEY and
+echo    OPENROUTER_API_KEY in .env
+echo.
+echo    To stop: run stop.bat or close the windows.
+echo  =============================================
+echo.
+pause

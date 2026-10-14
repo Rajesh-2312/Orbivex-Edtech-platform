@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { supabase, supabaseAdmin } = require('../config/supabase');
+const { supabaseAdmin } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 const { success, error } = require('../utils/response');
 const { notify } = require('../utils/notifications');
@@ -13,7 +13,7 @@ router.post('/', authMiddleware, async (req, res) => {
   const { lesson_id } = req.body;
   if (!lesson_id) return error(res, 'lesson_id is required');
 
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('progress')
     .upsert({
       user_id: req.user.id,
@@ -96,7 +96,7 @@ router.post('/', authMiddleware, async (req, res) => {
  */
 router.get('/course/:courseId', authMiddleware, async (req, res) => {
   // Get all lessons for this course
-  const { data: lessons } = await supabase
+  const { data: lessons } = await supabaseAdmin
     .from('lessons')
     .select('id, title, sort_order')
     .eq('course_id', req.params.courseId)
@@ -104,7 +104,7 @@ router.get('/course/:courseId', authMiddleware, async (req, res) => {
 
   // Get user's progress for these lessons
   const lessonIds = lessons?.map((l) => l.id) || [];
-  const { data: progressData } = await supabase
+  const { data: progressData } = await supabaseAdmin
     .from('progress')
     .select('*')
     .eq('user_id', req.user.id)
@@ -137,18 +137,18 @@ router.get('/course/:courseId', authMiddleware, async (req, res) => {
  * Overall progress summary for the user.
  */
 router.get('/summary', authMiddleware, async (req, res) => {
-  const { data: enrollments } = await supabase
+  const { data: enrollments } = await supabaseAdmin
     .from('enrollments')
     .select('course_id')
     .eq('user_id', req.user.id);
 
-  const { data: allProgress, count } = await supabase
+  const { data: allProgress, count } = await supabaseAdmin
     .from('progress')
     .select('*', { count: 'exact' })
     .eq('user_id', req.user.id)
     .eq('completed', true);
 
-  const { data: quizResults } = await supabase
+  const { data: quizResults } = await supabaseAdmin
     .from('quiz_responses')
     .select('score')
     .eq('user_id', req.user.id);

@@ -29,8 +29,10 @@ CREATE INDEX IF NOT EXISTS lsrw_evaluations_student
 ALTER TABLE lsrw_sessions    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lsrw_evaluations ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "student_own_sessions" ON lsrw_sessions;
 CREATE POLICY "student_own_sessions" ON lsrw_sessions
   FOR SELECT USING (auth.uid() = student_id);
 
+DROP POLICY IF EXISTS "student_own_evaluations" ON lsrw_evaluations;
 CREATE POLICY "student_own_evaluations" ON lsrw_evaluations
   FOR SELECT USING (auth.uid() = student_id);

@@ -82,6 +82,11 @@ $$;
 -- ============================================================
 -- 4. Backward-compat alias for tutorAgent.js (match_lesson_chunks)
 -- ============================================================
+-- 2026_05_18_phase10.sql defined this over lesson_embeddings at 768 dims with a
+-- different column order. Postgres ignores the vector dimension when matching
+-- signatures, so CREATE OR REPLACE cannot change the return type — drop first.
+DROP FUNCTION IF EXISTS public.match_lesson_chunks(vector, uuid, int);
+
 CREATE OR REPLACE FUNCTION match_lesson_chunks(
   query_embedding VECTOR(1024),
   match_lesson_id UUID,
@@ -115,17 +120,25 @@ $$;
 -- 5. Realtime: enable publication on core tables
 --    (Supabase Realtime subscribes via postgres_changes)
 -- ============================================================
-ALTER PUBLICATION supabase_realtime
-  ADD TABLE notifications;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-ALTER PUBLICATION supabase_realtime
-  ADD TABLE progress;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE progress;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-ALTER PUBLICATION supabase_realtime
-  ADD TABLE test_submissions;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE test_submissions;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-ALTER PUBLICATION supabase_realtime
-  ADD TABLE placement_drives;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE placement_drives;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- 6. RLS for content_embeddings
@@ -135,5 +148,6 @@ ALTER PUBLICATION supabase_realtime
 ALTER TABLE content_embeddings ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypasses automatically; deny all other access
+DROP POLICY IF EXISTS "no_direct_access" ON content_embeddings;
 CREATE POLICY "no_direct_access" ON content_embeddings
   FOR ALL USING (FALSE);

@@ -31,7 +31,7 @@ export default function CourseDetailPage() {
       setEnrolled(isEnrolled);
 
       if (isEnrolled) {
-        const progRes = await api.get(`/api/progress/course/${id}`);
+        const progRes = await api.get(`/progress/course/${id}`);
         setProgress(progRes.data.data);
       }
     } catch {}

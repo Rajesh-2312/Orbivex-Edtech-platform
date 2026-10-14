@@ -2,10 +2,10 @@ const { supabaseAdmin } = require('../config/supabase');
 const { generateCompletion } = require('../config/ai');
 const { SOURCES } = require('../utils/sources');
 
-const MODEL = 'claude';
+const MODEL = 'advanced';
 
-const BATCH_SIZE = 5;       // 1.5B model handles up to 5 MCQs per call cleanly.
-const MAX_BATCHES = 12;     // hard cap so a runaway loop can't spam Ollama (12 * 5 = 60).
+const BATCH_SIZE = 5;       // 5 MCQs per call keeps JSON parsing reliable.
+const MAX_BATCHES = 12;     // hard cap so a runaway loop can't spam the AI provider (12 * 5 = 60).
 
 // Companies we recognize — used to inject style hints into the prompt.
 // Falls back to a generic "placement test" tone when the company is unknown.
@@ -88,7 +88,7 @@ async function loadExistingKeys({ company, topic }) {
 
 /**
  * Run the PYQ agent for a single (company, topic, year) tuple.
- * Generates company-style placement MCQs locally via Ollama (no internet).
+ * Generates company-style placement MCQs via the configured AI provider.
  *
  * @param {object} args
  * @param {string} args.company        — must match company_rounds.company_name

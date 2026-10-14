@@ -23,7 +23,7 @@ export default function QuizPage() {
     setLoading(true);
     setResults(null);
     try {
-      const res = await api.get(`/api/quizzes/lesson/${lessonId}`);
+      const res = await api.get(`/quizzes/lesson/${lessonId}`);
       setQuiz(res.data.data);
     } catch {
       setQuiz(null);

@@ -19,7 +19,8 @@ CREATE INDEX IF NOT EXISTS idx_resumes_student ON public.resumes(student_id);
 
 ALTER TABLE public.resumes ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "resumes_own"
+DROP POLICY IF EXISTS "resumes_own" ON public.resumes;
+CREATE POLICY "resumes_own"
   ON public.resumes FOR ALL
   USING  (auth.uid() = student_id)
   WITH CHECK (auth.uid() = student_id);
@@ -40,7 +41,8 @@ CREATE INDEX IF NOT EXISTS idx_skill_gap_student ON public.skill_gap_results(stu
 
 ALTER TABLE public.skill_gap_results ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "skill_gap_own"
+DROP POLICY IF EXISTS "skill_gap_own" ON public.skill_gap_results;
+CREATE POLICY "skill_gap_own"
   ON public.skill_gap_results FOR ALL
   USING  (auth.uid() = student_id)
   WITH CHECK (auth.uid() = student_id);
@@ -62,7 +64,8 @@ CREATE INDEX IF NOT EXISTS idx_pyq_bookmarks_student ON public.pyq_bookmarks(stu
 
 ALTER TABLE public.pyq_bookmarks ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "pyq_bookmarks_own"
+DROP POLICY IF EXISTS "pyq_bookmarks_own" ON public.pyq_bookmarks;
+CREATE POLICY "pyq_bookmarks_own"
   ON public.pyq_bookmarks FOR ALL
   USING  (auth.uid() = student_id)
   WITH CHECK (auth.uid() = student_id);

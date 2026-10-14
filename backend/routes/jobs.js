@@ -1,18 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { supabase } = require('../config/supabase');
+const { supabaseAdmin } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 const roleMiddleware = require('../middleware/role');
 const { success, error } = require('../utils/response');
 const { notify } = require('../utils/notifications');
-const { supabaseAdmin } = require('../config/supabase');
 
 /**
  * GET /api/jobs
  * List active jobs.
  */
 router.get('/', async (req, res) => {
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('jobs')
     .select('*')
     .eq('is_active', true)
@@ -27,7 +26,7 @@ router.get('/', async (req, res) => {
  * Get a single job.
  */
 router.get('/:id', async (req, res) => {
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('jobs')
     .select('*')
     .eq('id', req.params.id)
@@ -45,7 +44,7 @@ router.post('/', authMiddleware, roleMiddleware('teacher', 'admin'), async (req,
   const { title, company, description, location, job_type } = req.body;
   if (!title) return error(res, 'Title is required');
 
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('jobs')
     .insert({
       title,
@@ -69,7 +68,7 @@ router.post('/', authMiddleware, roleMiddleware('teacher', 'admin'), async (req,
 router.post('/:id/apply', authMiddleware, async (req, res) => {
   const { cover_letter } = req.body;
 
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('applications')
     .insert({
       user_id: req.user.id,
@@ -137,7 +136,7 @@ router.patch('/:jobId/applications/:appId/status', authMiddleware, roleMiddlewar
  * Get current user's applications.
  */
 router.get('/my/applications', authMiddleware, async (req, res) => {
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('applications')
     .select('*, jobs(*)')
     .eq('user_id', req.user.id)

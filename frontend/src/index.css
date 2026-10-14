@@ -108,6 +108,38 @@
   --duration-slow:   500ms;
 }
 
+/* ─── "Night" theme — cool deep-black variant ───
+   Overrides ONLY the neutral surfaces/text/borders. Brand orange, accents,
+   radii and layout are shared with the default "dark" theme. Both are dark,
+   so pages using hardcoded light-on-dark inline colors stay fully legible. */
+:root[data-theme="night"] {
+  /* Surfaces — near-pure black with a cool blue undertone */
+  --bg-primary:   #030408;
+  --bg-secondary: #080a12;
+  --bg-tertiary:  #10131f;
+  --bg-glass:     rgba(8, 10, 18, 0.78);
+  --bg-elevated:  #151827;
+
+  --surface-100: #080a12;
+  --surface-200: #10131f;
+  --surface-300: #151827;
+
+  /* Text — cool white instead of the warm cream */
+  --text-primary:   #eef1f8;
+  --text-secondary: #a7afc4;
+  --text-muted:     #626b83;
+
+  /* Borders/shadows lean cooler and slightly deeper */
+  --border-subtle: 1px solid rgba(148, 163, 184, 0.10);
+  --border-glow:   1px solid rgba(249, 115, 22, 0.42);
+  --shadow-md:     0 4px 14px -2px rgba(0,0,0,0.7);
+  --shadow-lg:     0 14px 36px -8px rgba(0,0,0,0.8);
+  --shadow-xl:     0 28px 70px -12px rgba(0,0,0,0.85);
+}
+
+/* Smoothly cross-fade the base surfaces when the theme flips. */
+html, body { transition: background-color var(--duration-normal) var(--ease-smooth), color var(--duration-normal) var(--ease-smooth); }
+
 /* ─── Reset ─── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

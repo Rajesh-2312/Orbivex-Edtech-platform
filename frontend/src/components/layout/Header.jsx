@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { HiBars3, HiBell, HiXMark } from 'react-icons/hi2';
+import { HiBars3, HiBell, HiXMark, HiOutlineMoon, HiOutlineSparkles } from 'react-icons/hi2';
 import useAuthStore from '../../store/authStore';
 import useUiStore from '../../store/uiStore';
 import useNotificationStore from '../../store/notificationStore';
@@ -41,6 +41,8 @@ function timeAgo(iso) {
 export default function Header() {
   const user          = useAuthStore((s) => s.user);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const theme         = useUiStore((s) => s.theme);
+  const toggleTheme   = useUiStore((s) => s.toggleTheme);
   const location      = useLocation();
   const navigate      = useNavigate();
 
@@ -101,6 +103,17 @@ export default function Header() {
 
       {/* Right — actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+        {/* Theme toggle — Dark (warm) ⇄ Night (cool black) */}
+        <button
+          className="btn btn-icon btn-ghost"
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to Night theme' : 'Switch to Dark theme'}
+          title={theme === 'dark' ? 'Night theme' : 'Dark theme'}
+          style={{ display: 'flex' }}
+        >
+          {theme === 'dark' ? <HiOutlineMoon size={19} /> : <HiOutlineSparkles size={19} />}
+        </button>
 
         {/* Notification Bell */}
         <div ref={notifRef} style={{ position: 'relative' }}>

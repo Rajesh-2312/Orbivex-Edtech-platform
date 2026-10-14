@@ -12,7 +12,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 const TABLES_SQL = `
 -- Profiles table (linked to auth.users)
@@ -170,7 +170,7 @@ CREATE POLICY IF NOT EXISTS "Users can view own progress" ON public.progress FOR
 async function setup() {
   console.log('Setting up database tables...\n');
 
-  const { error } = await supabase.rpc('exec_sql', { sql: TABLES_SQL });
+  const { error } = await supabaseAdmin.rpc('exec_sql', { sql: TABLES_SQL });
 
   if (error) {
     // rpc exec_sql might not exist, try running via REST
@@ -183,7 +183,7 @@ async function setup() {
       .filter(s => s.length > 0 && !s.startsWith('--'));
 
     for (const stmt of statements) {
-      const { error: stmtErr } = await supabase.from('_sqlexec').select().limit(0);
+      const { error: stmtErr } = await supabaseAdmin.from('_sqlexec').select().limit(0);
       // We can't run raw SQL via the JS client directly.
       // Instead, let's just try creating tables via Supabase REST API
     }

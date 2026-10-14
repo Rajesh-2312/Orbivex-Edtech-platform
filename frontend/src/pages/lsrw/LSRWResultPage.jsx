@@ -211,10 +211,13 @@ export default function LSRWResultPage() {
           </motion.div>
         )}
 
-        {/* Footer */}
-        <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'rgba(255,255,255,0.18)', marginTop: 8 }}>
-          Evaluated by <span style={{ fontFamily: 'monospace' }}>{result.model_used}</span> via Nvidia NIM
-        </p>
+        {/* Footer — provider comes from the response; failover means it is not always the primary. */}
+        {result.model_used && (
+          <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'rgba(255,255,255,0.18)', marginTop: 8 }}>
+            Evaluated by <span style={{ fontFamily: 'monospace' }}>{result.model_used}</span>
+            {result.provider_used ? ` via ${result.provider_used}` : ''}
+          </p>
+        )}
       </div>
     </PageTransition>
   );

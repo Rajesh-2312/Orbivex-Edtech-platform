@@ -7,7 +7,7 @@ import {
   HiOutlineUserCircle, HiOutlineAcademicCap, HiOutlineChartBar,
   HiOutlineBriefcase, HiOutlineCheckCircle, HiOutlineTrophy,
   HiOutlineBookOpen, HiOutlineMicrophone, HiOutlineCpuChip,
-  HiOutlineArrowTrendingUp, HiOutlineSparkles,
+  HiOutlineArrowTrendingUp, HiOutlineSparkles, HiOutlineUsers,
 } from 'react-icons/hi2';
 
 /* Readiness ring */
@@ -93,8 +93,10 @@ function StudentRow({ student, onSelect }) {
         <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {student.display_name || student.username}
         </div>
+        {/* Join only the parts that exist — students without an enrolment number
+            or branch were otherwise rendering a bare "·" separator. */}
         <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: 2 }}>
-          {student.enrollment_number} · {student.branches?.name}
+          {[student.enrollment_number, student.branches?.name].filter(Boolean).join(' · ') || 'No enrolment details'}
         </div>
       </div>
       <div style={{ textAlign: 'right', flexShrink: 0 }}>

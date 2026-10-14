@@ -286,6 +286,17 @@ router.put('/lessons/:id', async (req, res) => {
 router.delete('/lessons/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    // content_embeddings.source_id has no FK to lessons (it is polymorphic —
+    // lesson OR question), so the lesson delete does not cascade to its chunks.
+    // Remove them here, otherwise the deleted lesson's embeddings stay
+    // searchable forever and surface as citations to a lesson that no longer
+    // exists.
+    await supabaseAdmin
+      .from('content_embeddings')
+      .delete()
+      .eq('source_type', 'lesson')
+      .eq('source_id', id);
+
     const { error: dbErr } = await supabaseAdmin.from('lessons').delete().eq('id', id);
     if (dbErr) throw dbErr;
     return success(res, { message: 'Lesson deleted' });
@@ -553,17 +564,26 @@ router.delete('/sections/:id', async (req, res) => {
 // ═══════════════════════════════════════════════════
 
 router.get('/students', async (req, res) => {
-  const { college_id, branch_id, section_id } = req.query;
+  const { college_id, branch_id, section_id, limit } = req.query;
   try {
     let query = supabaseAdmin
       .from('profiles')
-      .select('*, colleges(name), branches(name), sections(section_name)')
+      // colleges must be disambiguated: there are two FKs between profiles and
+      // colleges (profiles.college_id → colleges.id, and colleges.created_by →
+      // profiles.id), so a bare colleges(name) makes PostgREST reject the whole
+      // query with PGRST201. branches and sections have only one FK each.
+      .select('*, colleges!profiles_college_id_fkey(name), branches(name), sections(section_name)')
       .eq('role', 'student')
       .order('created_at', { ascending: false });
 
     if (college_id) query = query.eq('college_id', college_id);
     if (branch_id) query = query.eq('branch_id', branch_id);
     if (section_id) query = query.eq('section_id', section_id);
+
+    // Callers already pass ?limit=; honouring it keeps a 4,000-student college
+    // from returning the entire table in one response.
+    const max = Math.min(parseInt(limit, 10) || 500, 1000);
+    query = query.limit(max);
 
     const { data, error: dbErr } = await query;
     if (dbErr) throw dbErr;
@@ -577,7 +597,8 @@ router.get('/students/:id', async (req, res) => {
   try {
     const { data, error: dbErr } = await supabaseAdmin
       .from('profiles')
-      .select('*, colleges(name), branches(name), sections(section_name)')
+      // Same two-FK ambiguity as GET /students above.
+      .select('*, colleges!profiles_college_id_fkey(name), branches(name), sections(section_name)')
       .eq('id', req.params.id)
       .single();
     if (dbErr) throw dbErr;

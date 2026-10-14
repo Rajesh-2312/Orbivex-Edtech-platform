@@ -37,7 +37,6 @@ import PlacementDrivesPage from './pages/PlacementDrivesPage';
 import PlacementAnalyticsPage from './pages/PlacementAnalyticsPage';
 import PlacementProfilePage from './pages/PlacementProfilePage';
 import OnboardingPage from './pages/OnboardingPage';
-import SaasAdminPage from './pages/SaasAdminPage';
 import CodingPracticePage from './pages/CodingPracticePage';
 import ResumeBuilderPage from './pages/ResumeBuilderPage';
 import SkillGapPage from './pages/SkillGapPage';
@@ -96,9 +95,6 @@ export default function App() {
 
           {/* Self-service onboarding (no auth required) */}
           <Route path="/onboarding" element={<OnboardingPage />} />
-
-          {/* Founder SaaS admin portal (standalone, own auth check) */}
-          <Route path="/saas-admin" element={<SaasAdminPage />} />
 
           {/* Protected routes (inside Layout) */}
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>

@@ -7,9 +7,11 @@ const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { generateCompletion } = require('../config/ai');
 
-// ─── Ollama helper (same pattern as other agents) ─────────────────
-
+// ─── AI helper (NVIDIA NIM → OpenRouter fallback via config/ai) ────
+const aiChat = (prompt, opts = {}) =>
+  generateCompletion('standard', prompt, { temperature: 0.4, max_tokens: 1024, timeoutMs: 60_000, ...opts });
 
 function extractJSON(raw) {
   const cleaned = raw.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
@@ -65,7 +67,7 @@ Example: ["Built REST API...", "Reduced load time by 35%..."]`;
     return success(res, { bullets: bullets.slice(0, 6) });
   } catch (err) {
     console.error('[resume/generate-bullets]', err.message);
-    return error(res, 'AI bullet generation failed. Try again or check Ollama.', 500);
+    return error(res, 'AI bullet generation failed. Please try again in a moment.', 500);
   }
 });
 

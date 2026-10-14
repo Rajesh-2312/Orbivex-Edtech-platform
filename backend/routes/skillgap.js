@@ -7,8 +7,11 @@ const router  = express.Router();
 const authMiddleware  = require('../middleware/auth');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { generateCompletion } = require('../config/ai');
 
-
+// ─── AI helper (NVIDIA NIM → OpenRouter fallback via config/ai) ────
+const aiChat = (prompt, opts = {}) =>
+  generateCompletion('advanced', prompt, { temperature: 0.3, max_tokens: 1536, timeoutMs: 90_000, ...opts });
 
 function extractJSON(raw) {
   const cleaned = raw.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();

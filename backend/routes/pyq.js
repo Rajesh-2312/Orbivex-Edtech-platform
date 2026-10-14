@@ -9,8 +9,11 @@ const router  = express.Router();
 const authMiddleware  = require('../middleware/auth');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { generateCompletion } = require('../config/ai');
 
-
+// ─── AI helper (NVIDIA NIM → OpenRouter fallback via config/ai) ────
+const aiChat = (prompt, opts = {}) =>
+  generateCompletion('standard', prompt, { temperature: 0.3, max_tokens: 1536, timeoutMs: 90_000, ...opts });
 
 // ── Built-in PYQ seed data ─────────────────────────────────────────
 const PYQ_SEED = [
@@ -236,7 +239,7 @@ Write the answer in clear sections. Do not write JSON. Write the answer as if yo
     return success(res, { explanation: explanation.trim() });
   } catch (err) {
     console.error('[pyq/explain]', err.message);
-    return error(res, 'AI explanation failed. Please check if Ollama is running.', 500);
+    return error(res, 'AI explanation failed. Please try again in a moment.', 500);
   }
 });
 

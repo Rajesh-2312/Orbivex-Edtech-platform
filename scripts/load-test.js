@@ -20,7 +20,7 @@
  *
  * Requirements:
  *   - Node 18+ (global fetch)
- *   - The student account must exist (run `docker compose exec api node seed.js`)
+ *   - The student account must exist (run `node seed.js` from backend/)
  */
 
 const API_URL = process.env.API_URL || 'http://localhost:3001';
@@ -166,11 +166,11 @@ async function preflight() {
   const h = await fetch(`${API_URL}/api/health`).then((r) => r.json()).catch((e) => ({ error: e.message }));
   console.log(`Health: ${JSON.stringify(h)}`);
   if (h?.database !== 'connected') {
-    console.log(red('Database not connected — load test will mostly 500. Start docker compose first.'));
+    console.log(red('Database not connected — load test will mostly 500. Start the backend API first.'));
     process.exit(2);
   }
-  if (h?.ollama?.status !== 'connected') {
-    console.log(yellow('Ollama not connected — AI endpoints will fail (load test does not call them).'));
+  if (h?.ai?.status !== 'configured') {
+    console.log(yellow('No AI provider configured — AI endpoints will fail (load test does not call them).'));
   }
 }
 
@@ -229,7 +229,7 @@ function report(totalElapsed) {
     console.log(yellow('  PARTIAL — most requests succeeded but some endpoints are slow or erroring.'));
     slowEndpoints.forEach(([ep, m]) => console.log(yellow(`    slow: ${ep} p95=${pct(m.times, 95)}ms`)));
   } else {
-    console.log(red(`  FAIL — error rate ${(errRate * 100).toFixed(1)}%. Investigate rate limits, DB pool, and Ollama queue.`));
+    console.log(red(`  FAIL — error rate ${(errRate * 100).toFixed(1)}%. Investigate rate limits, DB pool, and AI provider queue.`));
   }
 }
 

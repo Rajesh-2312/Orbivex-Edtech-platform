@@ -71,7 +71,7 @@ function DemoModal({ onClose }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // In production, POST to /api/billing/demo-request
+    // TODO: wire up to a backend endpoint for demo requests
     setSubmitted(true);
   };
 

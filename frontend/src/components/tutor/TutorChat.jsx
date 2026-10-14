@@ -5,6 +5,7 @@ import {
   HiOutlineBookOpen,
 } from 'react-icons/hi2';
 import useTutorStore from '../../store/tutorStore';
+import FeedbackBar from './FeedbackBar';
 
 const STARTER_PROMPTS = [
   'Summarize this lesson in 5 bullet points',
@@ -160,18 +161,6 @@ export default function TutorChat({ lessonId, lessonTitle }) {
               {messages.map((m) => (
                 <MessageBubble key={m.id} m={m} />
               ))}
-
-              {sending && (
-                <div style={{
-                  alignSelf: 'flex-start', padding: '10px 14px',
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: 12, font: '400 0.82rem/1 var(--font-body)',
-                  color: 'var(--text-muted)',
-                }}>
-                  Tutor is thinking…
-                </div>
-              )}
             </div>
 
             {/* Input */}
@@ -221,6 +210,11 @@ export default function TutorChat({ lessonId, lessonTitle }) {
                 0%   { background-position: 200% 0; }
                 100% { background-position: -200% 0; }
               }
+              @keyframes tutorBlink { 50% { opacity: 0; } }
+              @keyframes tutorPulse {
+                0%, 100% { opacity: 0.3; transform: translateY(0); }
+                50%      { opacity: 1;   transform: translateY(-3px); }
+              }
             `}</style>
           </motion.aside>
         </>
@@ -252,6 +246,26 @@ function MessageBubble({ m }) {
       whiteSpace: 'pre-wrap',
     }}>
       {m.content}
+      {m.streaming && (
+        <span style={{
+          display: m.content ? 'inline-block' : 'inline-flex',
+          gap: 4, marginLeft: m.content ? 2 : 0, verticalAlign: 'middle',
+        }}>
+          {m.content
+            ? <span style={{
+                display: 'inline-block', width: 7, height: 15,
+                background: 'var(--brand-400)', borderRadius: 1,
+                animation: 'tutorBlink 1s step-start infinite',
+              }} />
+            : [0, 1, 2].map((i) => (
+                <span key={i} style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: 'var(--text-muted)',
+                  animation: `tutorPulse 1.2s ease-in-out ${i * 0.18}s infinite`,
+                }} />
+              ))}
+        </span>
+      )}
       {!isUser && Array.isArray(m.citations) && m.citations.length > 0 && (
         <div style={{
           marginTop: 10,
@@ -271,6 +285,9 @@ function MessageBubble({ m }) {
             </div>
           ))}
         </div>
+      )}
+      {!isUser && !m.isError && !m.streaming && m.content && (
+        <FeedbackBar messageId={m.id} lowConfidence={m.lowConfidence} />
       )}
     </div>
   );

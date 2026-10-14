@@ -12,6 +12,7 @@
  */
 
 const { generateCompletion } = require('../config/ai');
+const { parseLooseJSON } = require('../utils/json');
 
 const agentMetrics = new Map(); // agentName → { calls, successes, failures, totalMs }
 
@@ -116,33 +117,9 @@ class AgentBase {
     throw new Error(`${this.name} failed after ${this.maxRetries + 1} attempts: ${lastError?.message}`);
   }
 
-  /** Robust JSON parser — handles markdown fences, trailing commas, partial objects */
+  /** Robust JSON parser — see utils/json.js (shared with the RAG reranker) */
   _parseJSON(raw) {
-    if (!raw || typeof raw !== 'string') return null;
-
-    // Strip markdown code fences
-    let s = raw.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
-
-    // Try direct parse
-    try { return JSON.parse(s); } catch {}
-
-    // Extract first JSON object or array
-    const objMatch = s.match(/\{[\s\S]*\}/);
-    if (objMatch) { try { return JSON.parse(objMatch[0]); } catch {} }
-
-    const arrMatch = s.match(/\[[\s\S]*\]/);
-    if (arrMatch) { try { return JSON.parse(arrMatch[0]); } catch {} }
-
-    // Fix common LLM output errors: trailing commas, single quotes
-    try {
-      const cleaned = s
-        .replace(/,\s*([}\]])/g, '$1')  // trailing commas
-        .replace(/'/g, '"')              // single quotes
-        .replace(/(\w+)\s*:/g, '"$1":'); // unquoted keys
-      return JSON.parse(cleaned);
-    } catch {}
-
-    return null;
+    return parseLooseJSON(raw);
   }
 
   /** Get health metrics for this agent */

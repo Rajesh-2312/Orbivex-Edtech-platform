@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { supabase } = require('../config/supabase');
+const { supabaseAdmin } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 const roleMiddleware = require('../middleware/role');
 const { success, error, paginated } = require('../utils/response');
@@ -13,7 +13,7 @@ router.get('/', authMiddleware, async (req, res) => {
   const { page = 1, limit = 20, category, difficulty, search } = req.query;
   const offset = (page - 1) * limit;
 
-  let query = supabase
+  let query = supabaseAdmin
     .from('courses')
     .select('*', { count: 'exact' })
     .eq('is_published', true)
@@ -43,12 +43,12 @@ async function filterByCourseAccess(courses, user) {
   if (courses.length === 0) return courses;
 
   const courseIds = courses.map((c) => c.id);
-  const { data: accessRows } = await supabase
+  const { data: accessRows } = await supabaseAdmin
     .from('course_access')
     .select('course_id, college_id, branch_id, section_id')
     .in('course_id', courseIds);
 
-  const { data: profile } = await supabase
+  const { data: profile } = await supabaseAdmin
     .from('profiles')
     .select('college_id, branch_id, section_id')
     .eq('id', user.id)
@@ -74,15 +74,27 @@ async function filterByCourseAccess(courses, user) {
 /**
  * GET /api/courses/:id
  * Get a single course with its lessons.
+ *
+ * Was unauthenticated and had no `is_published` filter, so unpublished drafts
+ * and access-restricted courses were readable by anyone with the id — walking
+ * straight around `filterByCourseAccess`. Now: session required, drafts limited
+ * to staff, and the same access gate the list endpoint uses.
  */
-router.get('/:id', async (req, res) => {
-  const { data, error: dbError } = await supabase
+router.get('/:id', authMiddleware, async (req, res) => {
+  const { data, error: dbError } = await supabaseAdmin
     .from('courses')
     .select('*, lessons(id, title, description, sort_order, duration_minutes)')
     .eq('id', req.params.id)
     .single();
 
   if (dbError) return error(res, 'Course not found', 404);
+
+  const isStaff = req.user.role === 'admin' || req.user.role === 'teacher';
+  if (!data.is_published && !isStaff) return error(res, 'Course not found', 404);
+
+  const [visible] = await filterByCourseAccess([data], req.user);
+  if (!visible) return error(res, 'You do not have access to this course', 403);
+
   return success(res, data);
 });
 
@@ -95,7 +107,7 @@ router.post('/', authMiddleware, roleMiddleware('teacher', 'admin'), async (req,
 
   if (!title) return error(res, 'Title is required');
 
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('courses')
     .insert({
       title,
@@ -119,7 +131,7 @@ router.post('/', authMiddleware, roleMiddleware('teacher', 'admin'), async (req,
 router.put('/:id', authMiddleware, async (req, res) => {
   const { title, description, category, difficulty, thumbnail_url, is_published } = req.body;
 
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('courses')
     .update({
       title,
@@ -144,7 +156,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
  * Delete a course (owner only).
  */
 router.delete('/:id', authMiddleware, async (req, res) => {
-  const { error: dbError } = await supabase
+  const { error: dbError } = await supabaseAdmin
     .from('courses')
     .delete()
     .eq('id', req.params.id)
@@ -162,7 +174,22 @@ router.post('/enroll', authMiddleware, async (req, res) => {
   const { course_id } = req.body;
   if (!course_id) return error(res, 'course_id is required');
 
-  const { data, error: dbError } = await supabase
+  // `course_access` was enforced on listing only, so a student could enroll in
+  // any course — including another college's, and including unpublished drafts
+  // — by posting the id directly. Gate the write with the same rule as the read.
+  const { data: course } = await supabaseAdmin
+    .from('courses')
+    .select('id, is_published')
+    .eq('id', course_id)
+    .single();
+
+  if (!course) return error(res, 'Course not found', 404);
+  if (!course.is_published) return error(res, 'This course is not open for enrollment', 403);
+
+  const [allowed] = await filterByCourseAccess([course], req.user);
+  if (!allowed) return error(res, 'You do not have access to this course', 403);
+
+  const { data, error: dbError } = await supabaseAdmin
     .from('enrollments')
     .insert({ user_id: req.user.id, course_id })
     .select()
@@ -180,7 +207,7 @@ router.post('/enroll', authMiddleware, async (req, res) => {
  * Get courses the current user is enrolled in.
  */
 router.get('/my/enrolled', authMiddleware, async (req, res) => {
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('enrollments')
     .select('enrolled_at, courses(*)')
     .eq('user_id', req.user.id)

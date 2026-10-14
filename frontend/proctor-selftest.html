@@ -1,0 +1,250 @@
+<!doctype html>
+<!--
+  Proctoring self-test — dev only, never part of a production build (Vite only
+  bundles index.html).
+
+  Open http://localhost:5173/proctor-selftest.html
+
+  Feeds the real detection modules synthetic video via canvas.captureStream, so the
+  cover thresholds can be checked and retuned without a webcam. The plan calls for
+  tuning COVER_THRESHOLDS if honest students get terminated; this is where to do it.
+
+  What it cannot check: head-pose and gaze accuracy need a real human face in a real
+  webcam. Test those by hand at /lsrw/listening.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Proctor self-test</title>
+  <style>
+    body { font: 14px/1.6 ui-monospace, monospace; background: #0d0f14; color: #e6e6e6; padding: 24px; }
+    h1 { font-size: 16px; margin: 0 0 16px; }
+    table { border-collapse: collapse; margin-bottom: 20px; }
+    th, td { text-align: left; padding: 5px 14px 5px 0; border-bottom: 1px solid #222; }
+    .pass { color: #10b981; font-weight: 700; }
+    .fail { color: #ef4444; font-weight: 700; }
+    #summary { font-size: 15px; font-weight: 700; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <h1>Proctoring self-test</h1>
+  <div id="out">running…</div>
+  <div id="summary"></div>
+
+  <script>
+    // Surface failures in the page itself — a module that throws at top level
+    // otherwise just leaves "running…" on screen with no clue why.
+    const showFatal = (what) => {
+      document.getElementById('summary').innerHTML = `<span class="fail">FATAL: ${what}</span>`;
+    };
+    window.addEventListener('error', e => showFatal(e.message));
+    window.addEventListener('unhandledrejection', e => showFatal(e.reason?.message || String(e.reason)));
+  </script>
+  <script type="module">
+    import { createFrameSampler, classifyCover } from '/src/lib/proctor/frameStats.js';
+    import { loadFaceEngine, analyseFace } from '/src/lib/proctor/faceEngine.js';
+    import { loadObjectEngine, analyseObjects, PHONE_LABEL } from '/src/lib/proctor/objectEngine.js';
+
+    const W = 320, H = 240;
+
+    // Scene painters. `t` advances so "live" scenes jitter the way a real sensor does.
+    const SCENES = {
+      // Shutter closed / lens taped.
+      black: (ctx) => { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); },
+
+      // White paper held flat against the lens.
+      white: (ctx) => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); },
+
+      // The case brightness alone misses: a skin-toned palm on the lens. Mid
+      // brightness, faint gradient, no structure.
+      palm: (ctx, t) => {
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(0, `rgb(168,132,110)`);
+        g.addColorStop(1, `rgb(163,127,105)`);
+        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+        // Sensor noise, so this is not mistaken for a frozen feed.
+        ctx.fillStyle = `rgba(255,255,255,${0.004 + (t % 3) * 0.001})`;
+        ctx.fillRect(0, 0, W, H);
+      },
+
+      // Proxy for a genuine room: strong structure, moving. Must NOT be flagged.
+      room: (ctx, t) => {
+        ctx.fillStyle = '#2b3448'; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#8fa3c8';
+        for (let i = 0; i < 14; i++) {
+          const x = (i * 37 + t * 2) % W;
+          ctx.fillRect(x, 30 + (i % 5) * 34, 22, 26);
+        }
+        ctx.fillStyle = '#e8d9c0';
+        ctx.beginPath(); ctx.arc(W / 2 + Math.sin(t / 12) * 10, H / 2, 46, 0, Math.PI * 2); ctx.fill();
+      },
+
+      // A dim but real room — the nastiest false-positive risk. Must NOT be flagged.
+      dimRoom: (ctx, t) => {
+        ctx.fillStyle = '#1a1f2b'; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#5a6784';
+        for (let i = 0; i < 10; i++) {
+          const x = (i * 41 + t) % W;
+          ctx.fillRect(x, 40 + (i % 4) * 44, 26, 30);
+        }
+        ctx.fillStyle = '#7d6a58';
+        ctx.beginPath(); ctx.arc(W / 2, H / 2 + Math.cos(t / 15) * 6, 40, 0, Math.PI * 2); ctx.fill();
+      },
+
+      // Static structured image — a screenshot looped as a virtual camera.
+      frozen: (ctx) => {
+        ctx.fillStyle = '#2b3448'; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#8fa3c8';
+        for (let i = 0; i < 14; i++) ctx.fillRect((i * 37) % W, 30 + (i % 5) * 34, 22, 26);
+        ctx.fillStyle = '#e8d9c0';
+        ctx.beginPath(); ctx.arc(W / 2, H / 2, 46, 0, Math.PI * 2); ctx.fill();
+      },
+    };
+
+    const EXPECTED = {
+      black:   'camera_covered',
+      white:   'camera_covered',
+      palm:    'camera_covered',
+      room:    null,
+      dimRoom: null,
+      frozen:  'camera_frozen',
+    };
+
+    const step = (s) => { document.getElementById('out').textContent = s; };
+
+    const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
+    const ctx = canvas.getContext('2d');
+    SCENES.room(ctx, 0); // captureStream needs a painted frame before it emits
+    const stream = canvas.captureStream(30);
+    const video = Object.assign(document.createElement('video'), { autoplay: true, muted: true, playsInline: true });
+    video.srcObject = stream;
+    document.body.appendChild(video);
+    video.style.cssText = 'position:absolute;left:-9999px';
+
+    step('waiting for video…');
+    // play() can stay pending indefinitely in headless Chrome, so never await it
+    // outright — what actually matters is that frames are decodable.
+    video.play().catch(() => {});
+    await new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const check = () => {
+        if (video.readyState >= 2 && video.videoWidth) return resolve();
+        if (Date.now() - t0 > 15000) return reject(new Error(`video never became ready (readyState=${video.readyState}, w=${video.videoWidth})`));
+        setTimeout(check, 100);
+      };
+      check();
+    });
+
+    const sampler = createFrameSampler();
+    const rows = [];
+    let passed = 0, failed = 0;
+
+    const frame = () => new Promise(r => setTimeout(r, 60));
+
+    for (const [name, paint] of Object.entries(SCENES)) {
+      step(`scene: ${name}…`);
+      sampler.reset();
+      let stats = null, verdict;
+      // Several frames so temporalDelta is meaningful, and to let the encoder settle.
+      for (let t = 0; t < 8; t++) {
+        paint(ctx, t);
+        await frame();
+        stats = sampler.sample(video);
+      }
+      verdict = classifyCover(stats);
+      const ok = verdict === EXPECTED[name];
+      ok ? passed++ : failed++;
+      rows.push({ name, verdict, expected: EXPECTED[name], ok, stats });
+    }
+
+    // Model load is the single most likely deployment break: a wrong vendored path
+    // fails silently at runtime and would leave gaze unmonitored.
+    let modelRow;
+    try {
+      step('loading face model…');
+      const t0 = performance.now();
+      await loadFaceEngine();
+      const ms = Math.round(performance.now() - t0);
+      SCENES.room(ctx, 1); await frame();
+      const face = analyseFace(video, performance.now());
+      const ok = face !== null && face.faceCount === 0;
+      ok ? passed++ : failed++;
+      modelRow = { name: 'faceEngine loads + runs', verdict: `loaded in ${ms}ms, faceCount=${face?.faceCount}`, expected: 'loaded, 0 faces on a faceless scene', ok };
+    } catch (e) {
+      failed++;
+      modelRow = { name: 'faceEngine loads + runs', verdict: `ERROR: ${e.message}`, expected: 'loads from /mediapipe/', ok: false };
+    }
+    rows.push(modelRow);
+
+    // Same check for the object detector. A wrong vendored path fails silently at
+    // runtime and would leave phones completely unmonitored while everything else
+    // still looked healthy — so this is the assertion that matters most here.
+    try {
+      step('loading object model…');
+      const t0 = performance.now();
+      await loadObjectEngine();
+      const ms = Math.round(performance.now() - t0);
+      SCENES.room(ctx, 2); await frame();
+      const objs = analyseObjects(video, performance.now());
+      const ok = objs !== null && objs.phone === false;
+      ok ? passed++ : failed++;
+      rows.push({ name: `objectEngine loads ('${PHONE_LABEL}')`, verdict: `loaded in ${ms}ms, phone=${objs?.phone}`, expected: 'loaded, no phone in a phone-free scene', ok });
+    } catch (e) {
+      failed++;
+      rows.push({ name: 'objectEngine loads', verdict: `ERROR: ${e.message}`, expected: 'loads from /mediapipe/', ok: false });
+    }
+
+    // Per-model inference cost. Measured around the call only — no frame waits —
+    // and with the first passes discarded, since MediaPipe builds its graph lazily
+    // and the first inference is an order of magnitude slower than steady state.
+    //
+    // Note this runs headless with --disable-gpu, so these are CPU-only worst-case
+    // numbers; a real student's browser gets the GPU delegate.
+    const timeIt = async (label, fn, budget) => {
+      try {
+        step(`timing ${label}…`);
+        const WARMUP = 5, N = 15;
+        for (let i = 0; i < WARMUP; i++) { SCENES.room(ctx, i); await frame(); fn(performance.now()); }
+        let total = 0;
+        for (let i = 0; i < N; i++) {
+          SCENES.room(ctx, i + WARMUP);
+          await frame();
+          const t0 = performance.now();
+          fn(performance.now());
+          total += performance.now() - t0;
+        }
+        const per = total / N;
+        const ok = per < budget;
+        ok ? passed++ : failed++;
+        rows.push({ name: label, verdict: `${per.toFixed(1)}ms`, expected: `< ${budget}ms`, ok });
+        return per;
+      } catch (e) {
+        failed++;
+        rows.push({ name: label, verdict: `ERROR: ${e.message}`, expected: `< ${budget}ms`, ok: false });
+        return Infinity;
+      }
+    };
+
+    await timeIt('frameStats only', () => sampler.sample(video), 5);
+    await timeIt('faceEngine inference', (ts) => analyseFace(video, ts), 150);
+    await timeIt('objectEngine inference', (ts) => analyseObjects(video, ts), 300);
+
+    document.getElementById('out').innerHTML = `
+      <table>
+        <tr><th>scene</th><th>got</th><th>expected</th><th>luma</th><th>std</th><th>edges</th><th>Δt</th><th></th></tr>
+        ${rows.map(r => `<tr>
+          <td>${r.name}</td>
+          <td>${r.verdict === null ? 'clean' : r.verdict}</td>
+          <td>${r.expected === null ? 'clean' : r.expected}</td>
+          <td>${r.stats ? r.stats.meanLuma.toFixed(1) : ''}</td>
+          <td>${r.stats ? r.stats.stdDev.toFixed(1) : ''}</td>
+          <td>${r.stats ? r.stats.edgeDensity.toFixed(4) : ''}</td>
+          <td>${r.stats ? (isFinite(r.stats.temporalDelta) ? r.stats.temporalDelta.toFixed(2) : '∞') : ''}</td>
+          <td class="${r.ok ? 'pass' : 'fail'}">${r.ok ? 'PASS' : 'FAIL'}</td>
+        </tr>`).join('')}
+      </table>`;
+    document.getElementById('summary').innerHTML =
+      `<span class="${failed ? 'fail' : 'pass'}">RESULT: ${passed} passed, ${failed} failed</span>`;
+  </script>
+</body>
+</html>

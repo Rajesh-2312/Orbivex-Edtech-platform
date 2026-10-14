@@ -5,7 +5,7 @@
  *   1. Response shape (correct fields present)
  *   2. JSON parseability
  *   3. Latency
- *   4. Ollama health
+ *   4. AI provider health
  *
  * Then runs an optional concurrency stress test (--concurrent=N) to verify
  * the AI queue/cache holds up.
@@ -101,12 +101,12 @@ async function run() {
     must(TOKEN, 'no token');
   });
 
-  await step('GET /api/health — Ollama status', async () => {
+  await step('GET /api/health — AI provider status', async () => {
     const { status, json } = await req('GET', '/api/health');
     must(status === 200, `health: ${status}`);
-    info(`  ollama=${json.ollama?.status} models=${(json.ollama?.models || []).join(', ') || 'none'}`);
-    if (json.ollama?.status !== 'connected') {
-      throw new Error('Ollama disconnected — AI tests will all fail. Start docker compose and pull a model.');
+    info(`  ai=${json.ai?.status} nvidia=${json.ai?.providers?.nvidia?.status} openrouter=${json.ai?.providers?.openrouter?.status}`);
+    if (json.ai?.status !== 'configured') {
+      throw new Error('No AI provider configured — AI tests will all fail. Set NVIDIA_API_KEY and/or OPENROUTER_API_KEY.');
     }
   });
 

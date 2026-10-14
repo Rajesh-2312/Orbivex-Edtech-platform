@@ -1,9 +1,10 @@
 [build]
-  builder      = "DOCKERFILE"
-  dockerfilePath = "backend/Dockerfile"
+  builder = "NIXPACKS"
+  # Backend lives in ./backend — install and run from there
+  buildCommand = "cd backend && npm ci --omit=dev"
 
 [deploy]
-  startCommand  = "node server.js"
+  startCommand  = "cd backend && node server.js"
   healthcheckPath = "/api/health"
   restartPolicyType = "ON_FAILURE"
   restartPolicyMaxRetries = 3

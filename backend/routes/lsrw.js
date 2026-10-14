@@ -9,7 +9,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const { supabaseAdmin } = require('../config/supabase');
-const { generateCompletion } = require('../config/ai');
+const { generateCompletion, generateCompletionDetailed } = require('../config/ai');
 const { success, error } = require('../utils/response');
 
 // ─── Seed Content ─────────────────────────────────────────────────────────────
@@ -111,40 +111,419 @@ const WRITING_PROMPTS = [
 
 async function saveSession(student_id, skill_type, content_id) {
   const sessionId = crypto.randomUUID();
-  const { error: dbErr } = await supabaseAdmin.from('lsrw_sessions').insert({
-    id: sessionId,
-    student_id,
-    skill_type,
-    content_id,
-    status: 'started',
-  }).catch(() => ({ error: null })); // table may not exist yet — non-blocking
-  if (dbErr) console.warn('[lsrw] saveSession warning:', dbErr.message);
-  return sessionId;
+  try {
+    const { error: dbErr } = await supabaseAdmin.from('lsrw_sessions').insert({
+      id: sessionId, student_id, skill_type, content_id, status: 'started',
+    });
+    if (dbErr) console.warn('[lsrw] saveSession warning:', dbErr.message);
+  } catch (e) {
+    console.warn('[lsrw] saveSession error (table may not exist):', e?.message);
+  }
+  return sessionId; // always return the UUID regardless of DB outcome
 }
 
 async function saveEvaluation(student_id, skill_type, score, session_id, metadata = {}) {
-  await supabaseAdmin.from('lsrw_evaluations').insert({
-    student_id,
-    skill_type,
-    score,
-    session_id,
-    metadata,
-  }).catch((e) => console.warn('[lsrw] saveEvaluation warning:', e?.message));
+  try {
+    const { error: dbErr } = await supabaseAdmin.from('lsrw_evaluations').insert({
+      student_id, skill_type, score, session_id, metadata,
+    });
+    if (dbErr) console.warn('[lsrw] saveEvaluation warning:', dbErr.message);
+  } catch (e) {
+    console.warn('[lsrw] saveEvaluation error:', e?.message);
+  }
 }
 
+// Provider label shown to students on the result page ("Evaluated by …").
+const PROVIDER_LABEL = { nvidia: 'NVIDIA NIM', openrouter: 'OpenRouter' };
+
 async function aiEvaluate(prompt) {
-  const raw = await generateCompletion('advanced', prompt, {
+  const { text, provider, model } = await generateCompletionDetailed('advanced', prompt, {
     temperature: 0.2,
     max_tokens: 800,
     cache: false,
   });
-  // Try to parse JSON, fall back to a safe default
-  try {
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-  } catch {}
-  return { score: 60, feedback: raw.slice(0, 600), strengths: [], improvements: [] };
+  // Report the provider that actually answered — failover means it is not
+  // always the configured primary.
+  const meta = { model_used: model, provider_used: PROVIDER_LABEL[provider] || provider };
+  const parsed = parseJsonObject(text);
+  if (parsed) return { ...parsed, ...meta };
+  // Unparseable — surface the prose rather than inventing sub-scores.
+  return { score: 60, feedback: text.slice(0, 600), strengths: [], improvements: [], ...meta };
 }
+
+/**
+ * Normalise the AI's `corrections` into the {original, suggestion, reason}
+ * shape the result page renders. Models drift between field names and
+ * sometimes return plain strings; anything we cannot map to a before/after
+ * pair is dropped, because a half-empty correction renders as blank pills.
+ */
+function normaliseCorrections(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((c) => {
+    if (!c || typeof c !== 'object') return null;
+    const original   = String(c.original ?? c.before ?? c.error ?? c.incorrect ?? '').trim();
+    const suggestion = String(c.suggestion ?? c.corrected ?? c.after ?? c.correction ?? c.correct ?? '').trim();
+    const reason     = String(c.reason ?? c.explanation ?? c.why ?? '').trim();
+    if (!original || !suggestion) return null;
+    return { original, suggestion, reason };
+  }).filter(Boolean).slice(0, 8);
+}
+
+// ─── AI Content Pools (30 AI-generated items per level, cached) ─────────────────
+//
+// Generic engine shared by Listening (passages + questions) and Speaking (topics
+// + prompts). For each level it generates POOL_SIZE unique items with the fast
+// "standard" (8B) model in parallel waves — many small batches beat one slow 70B
+// call that would exceed the provider timeout — then caches them in memory and,
+// best-effort, in Supabase.
+
+const POOL_LEVELS = ['beginner', 'intermediate', 'advanced'];
+const POOL_SIZE = 30;
+
+/**
+ * Pull a JSON array out of raw model output.
+ *
+ * Models routinely emit JSON that JSON.parse rejects: markdown fences, a
+ * trailing comma before the closing bracket, or an array cut off mid-element
+ * when the response hits max_tokens. Each failure previously discarded a whole
+ * batch, so we degrade instead: strict parse → trailing commas stripped →
+ * salvage whatever complete {...} objects are present (which also rescues
+ * truncated arrays).
+ */
+function parseJsonArray(raw) {
+  const fenced = String(raw || '').replace(/```(?:json)?/gi, '');
+  const start = fenced.indexOf('[');
+  if (start === -1) return [];
+  const text = fenced.slice(start);
+
+  for (const candidate of [text, text.replace(/,(\s*[\]}])/g, '$1')]) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* try the next repair */ }
+  }
+  return salvageObjects(text);
+}
+
+/**
+ * Same repair chain as parseJsonArray, for responses that are a single JSON
+ * object (the evaluators). Returns null when nothing usable is present.
+ */
+function parseJsonObject(raw) {
+  const fenced = String(raw || '').replace(/```(?:json)?/gi, '');
+  const start = fenced.indexOf('{');
+  if (start === -1) return null;
+  const text = fenced.slice(start);
+
+  for (const candidate of [text, text.replace(/,(\s*[\]}])/g, '$1')]) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch { /* try the next repair */ }
+  }
+  // Trailing prose after the object, or a truncated tail — take the first complete one.
+  return salvageObjects(text)[0] || null;
+}
+
+/** Extract each complete top-level {...} object, ignoring braces inside strings. */
+function salvageObjects(text) {
+  const out = [];
+  let depth = 0, start = -1, inString = false, escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') { if (depth === 0) start = i; depth++; }
+    else if (ch === '}' && depth > 0) {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try { out.push(JSON.parse(text.slice(start, i + 1))); } catch { /* skip malformed element */ }
+        start = -1;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * @param decorateItem — per-skill timing/metadata merged onto every item
+ *                       (Listening/Speaking use duration_seconds, Reading
+ *                       read_time_minutes, Writing time_limit_minutes).
+ * @param batchSize    — items per request; lower it for verbose skills so the
+ *                       array does not get truncated by max_tokens.
+ */
+function createPool({
+  skill, table, meta, batchPrompt, normalise, itemFields, seedFor,
+  decorateItem = (m) => ({ duration_seconds: m.duration_seconds }),
+  batchSize = 6,
+  maxTokens = 2000,
+}) {
+  const cache = new Map(); // level -> decorated items
+
+  const decorate = (level, list) => list.map((it, i) => ({
+    id: `${level}-${i + 1}`, level, ...decorateItem(meta[level] || meta.beginner), ...it,
+  }));
+  const strip = (it) => Object.fromEntries(itemFields.map(f => [f, it[f]]));
+
+  async function batch(level, count) {
+    try {
+      // Pool batches are long generations (multi-thousand token JSON). OpenRouter
+      // reliably times out on those while NVIDIA's 8B completes them in ~40s, so
+      // pools prefer NVIDIA — the opposite of the interactive default. Failover
+      // still applies; this only reorders the attempts.
+      const raw = await generateCompletion('standard', batchPrompt(level, count, meta[level] || meta.beginner),
+        { temperature: 0.8, max_tokens: maxTokens, cache: false, providerOrder: ['nvidia', 'openrouter'] });
+      return normalise(parseJsonArray(raw));
+    } catch (e) {
+      console.warn(`[lsrw] ${skill} batch (${level}) failed:`, e?.message);
+      return [];
+    }
+  }
+
+  async function generate(level) {
+    // Eight parallel batches of six per wave (matches the AI concurrency cap) so
+    // one wave usually suffices; at most two waves, bounded by a ~35s budget.
+    const seen = new Set();
+    const items = [];
+    const collect = (b) => { for (const it of b) { const k = it.title.toLowerCase(); if (!seen.has(k)) { seen.add(k); items.push(it); } } };
+    const started = Date.now();
+    const perWave = Math.ceil(POOL_SIZE / batchSize) + 2; // enough batches to fill the pool, plus slack for rejects
+    for (let wave = 0; wave < 2 && items.length < POOL_SIZE && Date.now() - started < 35000; wave++) {
+      const results = await Promise.allSettled(
+        Array.from({ length: perWave }, () => batch(level, batchSize))
+      );
+      for (const r of results) if (r.status === 'fulfilled') collect(r.value);
+    }
+    return items;
+  }
+
+  async function get(level) {
+    if (cache.has(level)) return cache.get(level);
+
+    // 1) Persistent Supabase cache (best-effort — table may not exist yet).
+    try {
+      const { data } = await supabaseAdmin.from(table).select('items').eq('level', level).maybeSingle();
+      if (data?.items?.length >= POOL_SIZE) {
+        const pool = decorate(level, data.items.slice(0, POOL_SIZE));
+        cache.set(level, pool);
+        return pool;
+      }
+    } catch { /* table missing — fall through to generation */ }
+
+    // 2) Generate via AI.
+    const items = await generate(level);
+
+    // 3) Top up to POOL_SIZE if the model returned fewer — prefer cycling through
+    //    the real generated items (varied); only fall back to seed content if the
+    //    model produced nothing at all.
+    if (items.length < POOL_SIZE) {
+      const seed = seedFor(level);
+      const source = items.length ? items.slice() : (seed.length ? seed : [{ title: `${skill} Practice` }]);
+      let n = 0;
+      while (items.length < POOL_SIZE) {
+        const base = source[n % source.length];
+        items.push({ ...base, title: `${base.title} (practice ${items.length + 1})` });
+        n++;
+      }
+    }
+
+    const pool = decorate(level, items.slice(0, POOL_SIZE));
+    cache.set(level, pool);
+
+    // 4) Persist for next time (best-effort).
+    try {
+      await supabaseAdmin.from(table).upsert({ level, items: pool.map(strip) }, { onConflict: 'level' });
+    } catch { /* table missing — in-memory cache still serves this process */ }
+
+    return pool;
+  }
+
+  return { get };
+}
+
+// ── Listening pool ──
+const LISTENING_POOL = createPool({
+  skill: 'listening',
+  table: 'lsrw_listening_pool',
+  itemFields: ['title', 'text', 'questions'],
+  meta: {
+    beginner:     { duration_seconds: 45, guide: 'everyday, concrete topics (nature, daily life, simple science, sports, food, festivals). Simple vocabulary and short sentences. 50-70 words each.' },
+    intermediate: { duration_seconds: 60, guide: 'general-knowledge topics (technology, society, history, environment, health, culture). Moderate vocabulary. 80-110 words each.' },
+    advanced:     { duration_seconds: 75, guide: 'abstract or technical topics (economics, science, philosophy, geopolitics, advanced technology). Rich vocabulary and complex ideas. 90-120 words each.' },
+  },
+  batchPrompt: (level, count, m) => `Generate ${count} DISTINCT English listening-comprehension passages for ${level.toUpperCase()} learners.
+Topics: ${m.guide}
+Each passage must be self-contained, factually plausible, and cover a different topic.
+Return ONLY a valid JSON array (no markdown, no prose). Each element must be exactly:
+{"title":"<short title>","text":"<the passage>","questions":["<question 1>","<question 2>","<question 3>"]}
+Return exactly ${count} elements.`,
+  normalise: (arr) => (Array.isArray(arr) ? arr : [])
+    .filter(p => p && typeof p.text === 'string' && p.text.trim().length > 30 && Array.isArray(p.questions) && p.questions.length >= 2)
+    .map(p => ({ title: String(p.title || 'Listening Passage').slice(0, 120), text: String(p.text).trim(), questions: p.questions.slice(0, 3).map(q => String(q)) })),
+  seedFor: (level) => LISTENING_PASSAGES.filter(p => p.level === level).map(p => ({ title: p.title, text: p.text, questions: p.questions })),
+});
+
+// ── Speaking pool ──
+const SPEAKING_POOL = createPool({
+  skill: 'speaking',
+  table: 'lsrw_speaking_pool',
+  itemFields: ['title', 'prompt', 'key_phrases'],
+  meta: {
+    beginner:     { duration_seconds: 60,  guide: 'everyday, personal topics (hobbies, family, food, daily routine, favourite place). Simple and easy to talk about.' },
+    intermediate: { duration_seconds: 90,  guide: 'opinion and general-knowledge topics (technology, education, environment, social media, travel). Require some reasoning.' },
+    advanced:     { duration_seconds: 120, guide: 'abstract, argumentative or analytical topics (ethics, economics, policy, science, society). Require structured argument.' },
+  },
+  batchPrompt: (level, count, m) => `Generate ${count} DISTINCT English speaking-practice topics for ${level.toUpperCase()} learners.
+Style: ${m.guide}
+Each topic must invite the learner to speak for about ${m.duration_seconds} seconds and cover a different subject.
+Return ONLY a valid JSON array (no markdown, no prose). Each element must be exactly:
+{"title":"<short title>","prompt":"<the speaking prompt, 1-2 sentences>","key_phrases":["<phrase 1>","<phrase 2>","<phrase 3>"]}
+Return exactly ${count} elements.`,
+  normalise: (arr) => (Array.isArray(arr) ? arr : [])
+    .filter(t => t && typeof t.prompt === 'string' && t.prompt.trim().length > 15)
+    .map(t => ({
+      title: String(t.title || 'Speaking Topic').slice(0, 120),
+      prompt: String(t.prompt).trim(),
+      key_phrases: Array.isArray(t.key_phrases) ? t.key_phrases.slice(0, 4).map(p => String(p)) : [],
+    })),
+  seedFor: (level) => SPEAKING_TOPICS.filter(t => t.level === level).map(t => ({ title: t.title, prompt: t.prompt, key_phrases: t.key_phrases })),
+});
+
+// ── Reading pool ──
+// Each item carries its own MCQs and answer key, so batches are the most
+// token-heavy of the four skills — hence the smaller batchSize.
+const OPTION_LABELS = ['A', 'B', 'C', 'D'];
+
+const READING_POOL = createPool({
+  skill: 'reading',
+  table: 'lsrw_reading_pool',
+  itemFields: ['title', 'passage', 'questions'],
+  decorateItem: (m) => ({ read_time_minutes: m.read_time_minutes }),
+  batchSize: 3,
+  maxTokens: 3500,
+  meta: {
+    beginner:     { read_time_minutes: 3, guide: 'everyday, concrete topics (health, nature, daily life, sports, food, festivals). Simple vocabulary and short sentences. 90-130 words.' },
+    intermediate: { read_time_minutes: 5, guide: 'general-knowledge topics (technology, society, history, environment, science, culture). Moderate vocabulary. 140-200 words.' },
+    advanced:     { read_time_minutes: 7, guide: 'abstract or technical topics (economics, philosophy, geopolitics, advanced science, policy). Rich vocabulary and complex argument. 200-260 words.' },
+  },
+  batchPrompt: (level, count, m) => `Generate ${count} DISTINCT English reading-comprehension passages for ${level.toUpperCase()} learners.
+Topics: ${m.guide}
+Each passage must be self-contained, factually accurate, and cover a different topic.
+Write exactly 3 multiple-choice questions per passage, each with exactly 4 options.
+"answer" must be the LETTER (A, B, C or D) of the correct option, and that option must be genuinely correct per the passage.
+Mix question_type between "comprehension" (stated directly) and "inference" (requires reasoning).
+Return ONLY a valid JSON array (no markdown, no prose, no trailing commas). Each element must be exactly:
+{"title":"<short title>","passage":"<the passage>","questions":[{"question_type":"comprehension","question":"<question>","opts":["<A>","<B>","<C>","<D>"],"answer":"B"}]}
+Return exactly ${count} elements.`,
+  normalise: (arr) => (Array.isArray(arr) ? arr : [])
+    .filter(p => p && typeof p.passage === 'string' && p.passage.trim().length > 60 && Array.isArray(p.questions) && p.questions.length >= 2)
+    .map(p => ({
+      title: String(p.title || 'Reading Passage').slice(0, 120),
+      passage: String(p.passage).trim(),
+      questions: p.questions
+        // Drop questions whose answer key is unusable — a wrong key is worse than one fewer question.
+        .filter(q => q && typeof q.question === 'string' && Array.isArray(q.opts) && q.opts.length === 4
+          && OPTION_LABELS.includes(String(q.answer || '').trim().toUpperCase()))
+        .slice(0, 3)
+        .map((q, i) => ({
+          id: `q${i}`,
+          question_type: q.question_type === 'inference' ? 'inference' : 'comprehension',
+          question: String(q.question).trim(),
+          opts: q.opts.map(o => String(o)),
+          answer: String(q.answer).trim().toUpperCase(),
+        })),
+    }))
+    .filter(p => p.questions.length >= 2),
+  seedFor: (level) => READING_PASSAGES.filter(p => p.level === level).map(p => ({ title: p.title, passage: p.passage, questions: p.questions })),
+});
+
+// ── Writing pool ──
+const WRITING_POOL = createPool({
+  skill: 'writing',
+  table: 'lsrw_writing_pool',
+  itemFields: ['title', 'prompt'],
+  decorateItem: (m) => ({ time_limit_minutes: m.time_limit_minutes, target_word_count: m.target_word_count }),
+  batchSize: 8,
+  meta: {
+    beginner:     { time_limit_minutes: 10, target_word_count: 150, guide: 'personal, descriptive topics (college life, hometown, hobbies, a memorable day, family). Easy to write from experience.' },
+    intermediate: { time_limit_minutes: 20, target_word_count: 250, guide: 'opinion and discussion topics (technology, education, environment, social media, work culture). Require a clear argument with examples.' },
+    advanced:     { time_limit_minutes: 30, target_word_count: 400, guide: 'analytical or argumentative topics (ethics, economics, policy, science and society). Require a structured, evidence-based argument.' },
+  },
+  batchPrompt: (level, count, m) => `Generate ${count} DISTINCT English writing-practice prompts for ${level.toUpperCase()} learners.
+Style: ${m.guide}
+Each prompt must be answerable in about ${m.target_word_count} words within ${m.time_limit_minutes} minutes, and cover a different subject.
+Return ONLY a valid JSON array (no markdown, no prose, no trailing commas). Each element must be exactly:
+{"title":"<short title>","prompt":"<the writing task, 1-3 sentences, stating clearly what to write>"}
+Return exactly ${count} elements.`,
+  normalise: (arr) => (Array.isArray(arr) ? arr : [])
+    .filter(w => w && typeof w.prompt === 'string' && w.prompt.trim().length > 20)
+    .map(w => ({
+      title: String(w.title || 'Writing Prompt').slice(0, 120),
+      prompt: String(w.prompt).trim(),
+    })),
+  seedFor: (level) => WRITING_PROMPTS.filter(w => w.level === level).map(w => ({ title: w.title, prompt: w.prompt })),
+});
+
+// ─── Proctoring ───────────────────────────────────────────────────────────────
+
+// Reasons the client may report. Whitelisted so a tampered client cannot write
+// arbitrary strings into what is meant to be reviewable evidence.
+const PROCTOR_REASONS = new Set([
+  'camera_covered', 'camera_frozen', 'camera_lost', 'looking_away',
+  'no_face', 'multiple_faces', 'phone_detected',
+  'tab_switch', 'window_blur', 'fullscreen_exit',
+]);
+
+// End an attempt because a proctoring rule was broken.
+// The student's answers are never submitted — termination discards the attempt.
+router.post('/session/:id/terminate', authMiddleware, async (req, res) => {
+  const reason = PROCTOR_REASONS.has(req.body?.reason) ? req.body.reason : 'unknown';
+  try {
+    // Scoped to the caller: a student must not be able to terminate someone
+    // else's attempt by guessing a session UUID.
+    const { error: dbErr } = await supabaseAdmin
+      .from('lsrw_sessions')
+      .update({ status: 'terminated', terminated_at: new Date().toISOString(), termination_reason: reason })
+      .eq('id', req.params.id)
+      .eq('student_id', req.user.id);
+    if (dbErr) console.warn('[lsrw] terminate warning:', dbErr.message);
+  } catch (e) {
+    console.warn('[lsrw] terminate error:', e?.message);
+  }
+  // Always acknowledge. The browser has already ended the attempt locally; a DB
+  // problem here must not leave the student staring at a hung screen.
+  res.json({ terminated: true, reason });
+});
+
+// Append the violation audit trail (warnings + the final termination).
+router.post('/session/:id/proctor-events', authMiddleware, async (req, res) => {
+  const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 50) : [];
+  const rows = events
+    .filter(e => PROCTOR_REASONS.has(e?.reason) && ['warn', 'terminate'].includes(e?.severity))
+    .map(e => ({
+      session_id: req.params.id,
+      student_id: req.user.id,
+      reason: e.reason,
+      severity: e.severity,
+      details: { at: e.at || null },
+    }));
+
+  if (rows.length) {
+    try {
+      const { error: dbErr } = await supabaseAdmin.from('lsrw_proctor_events').insert(rows);
+      if (dbErr) console.warn('[lsrw] proctor-events warning:', dbErr.message);
+    } catch (e) {
+      console.warn('[lsrw] proctor-events error (table may not exist):', e?.message);
+    }
+  }
+  res.json({ logged: rows.length });
+});
 
 // ─── Content Endpoints ────────────────────────────────────────────────────────
 
@@ -158,10 +537,27 @@ router.get('/listening/passages', authMiddleware, (req, res) => {
   res.json({ passages: LISTENING_PASSAGES });
 });
 
+// 30 AI-generated audios for a level (beginner | intermediate | advanced), cached.
+router.get('/listening/pool/:level', authMiddleware, async (req, res) => {
+  const level = POOL_LEVELS.includes(req.params.level) ? req.params.level : 'beginner';
+  try {
+    const passages = await LISTENING_POOL.get(level);
+    res.json({ level, passages });
+  } catch (e) {
+    console.error('[lsrw] listening pool:', e?.message);
+    // Last resort: seed passages for that level so the page still renders.
+    res.json({ level, passages: LISTENING_PASSAGES.filter(p => p.level === level) });
+  }
+});
+
 router.post('/listening/start-session', authMiddleware, async (req, res) => {
-  const { student_id, content_id } = req.query;
-  const sessionId = await saveSession(student_id || req.user.id, 'listening', content_id);
-  res.json({ session_id: sessionId });
+  try {
+    const { student_id, content_id } = req.query;
+    const sessionId = await saveSession(student_id || req.user.id, 'listening', content_id);
+    res.json({ session_id: sessionId });
+  } catch (e) {
+    res.json({ session_id: crypto.randomUUID() }); // always succeed
+  }
 });
 
 router.post('/listening/evaluate', authMiddleware, async (req, res) => {
@@ -200,7 +596,6 @@ Evaluate the student's comprehension. Return ONLY valid JSON:
         explanation: q.comment || (q.correct ? 'Correct.' : 'Needs improvement.'),
       }));
     }
-    result.model_used = process.env.NVIDIA_MODEL || 'local';
     await saveEvaluation(student_id || req.user.id, 'listening', result.score || 60, session_id, { questions, student_answers });
     res.json(result);
   } catch (err) {
@@ -215,10 +610,26 @@ router.get('/speaking/topics', authMiddleware, (req, res) => {
   res.json({ topics: SPEAKING_TOPICS });
 });
 
+// 30 AI-generated speaking topics for a level (beginner | intermediate | advanced), cached.
+router.get('/speaking/pool/:level', authMiddleware, async (req, res) => {
+  const level = POOL_LEVELS.includes(req.params.level) ? req.params.level : 'beginner';
+  try {
+    const topics = await SPEAKING_POOL.get(level);
+    res.json({ level, topics });
+  } catch (e) {
+    console.error('[lsrw] speaking pool:', e?.message);
+    res.json({ level, topics: SPEAKING_TOPICS.filter(t => t.level === level) });
+  }
+});
+
 router.post('/speaking/start-session', authMiddleware, async (req, res) => {
-  const { student_id, content_id } = req.query;
-  const sessionId = await saveSession(student_id || req.user.id, 'speaking', content_id);
-  res.json({ session_id: sessionId });
+  try {
+    const { student_id, content_id } = req.query;
+    const sessionId = await saveSession(student_id || req.user.id, 'speaking', content_id);
+    res.json({ session_id: sessionId });
+  } catch (e) {
+    res.json({ session_id: crypto.randomUUID() });
+  }
 });
 
 router.post('/speaking/evaluate', authMiddleware, async (req, res) => {
@@ -263,7 +674,6 @@ Return ONLY valid JSON:
     }
     result.transcript = transcript || null;
     result.words_per_minute = transcript ? Math.round((transcript.split(/\s+/).length / (duration_seconds || 60)) * 60) : null;
-    result.model_used = process.env.NVIDIA_MODEL || 'local';
     await saveEvaluation(student_id || req.user.id, 'speaking', result.score || 60, session_id, { topic_prompt, transcript });
     res.json(result);
   } catch (err) {
@@ -278,16 +688,47 @@ router.get('/reading/passages', authMiddleware, (req, res) => {
   res.json({ passages: READING_PASSAGES });
 });
 
+// 30 AI-generated passages for a level (beginner | intermediate | advanced), cached.
+router.get('/reading/pool/:level', authMiddleware, async (req, res) => {
+  const level = POOL_LEVELS.includes(req.params.level) ? req.params.level : 'beginner';
+  try {
+    const passages = await READING_POOL.get(level);
+    res.json({ level, passages });
+  } catch (e) {
+    console.error('[lsrw] reading pool:', e?.message);
+    // Last resort: seed passages for that level so the page still renders.
+    res.json({ level, passages: READING_PASSAGES.filter(p => p.level === level) });
+  }
+});
+
+/**
+ * Resolve a passage id to the passage (with its answer key) server-side.
+ * Answers are never taken from the request body — the client only sends the id.
+ */
+async function resolveReadingPassage(passageId) {
+  const seed = READING_PASSAGES.find(p => p.id === passageId);
+  if (seed) return seed;
+
+  const match = /^(beginner|intermediate|advanced)-\d+$/.exec(String(passageId || ''));
+  if (!match) return null;
+  const pool = await READING_POOL.get(match[1]);
+  return pool.find(p => p.id === passageId) || null;
+}
+
 router.post('/reading/start-session', authMiddleware, async (req, res) => {
-  const { student_id, content_id } = req.query;
-  const sessionId = await saveSession(student_id || req.user.id, 'reading', content_id);
-  res.json({ session_id: sessionId });
+  try {
+    const { student_id, content_id } = req.query;
+    const sessionId = await saveSession(student_id || req.user.id, 'reading', content_id);
+    res.json({ session_id: sessionId });
+  } catch (e) {
+    res.json({ session_id: crypto.randomUUID() });
+  }
 });
 
 router.post('/reading/evaluate', authMiddleware, async (req, res) => {
   try {
     const { passage_id, student_answers, time_taken_seconds, student_id, session_id } = req.body;
-    const passage = READING_PASSAGES.find(p => p.id === passage_id);
+    const passage = await resolveReadingPassage(passage_id);
     if (!passage) return error(res, 'Unknown passage_id');
 
     // Normalise answers: accept array (indexed by position) or object (keyed by question id)
@@ -343,10 +784,27 @@ router.get('/writing/prompts', authMiddleware, (req, res) => {
   res.json({ prompts: WRITING_PROMPTS });
 });
 
+// 30 AI-generated prompts for a level (beginner | intermediate | advanced), cached.
+router.get('/writing/pool/:level', authMiddleware, async (req, res) => {
+  const level = POOL_LEVELS.includes(req.params.level) ? req.params.level : 'beginner';
+  try {
+    const prompts = await WRITING_POOL.get(level);
+    res.json({ level, prompts });
+  } catch (e) {
+    console.error('[lsrw] writing pool:', e?.message);
+    // Last resort: seed prompts for that level so the page still renders.
+    res.json({ level, prompts: WRITING_PROMPTS.filter(w => w.level === level) });
+  }
+});
+
 router.post('/writing/start-session', authMiddleware, async (req, res) => {
-  const { student_id, content_id } = req.query;
-  const sessionId = await saveSession(student_id || req.user.id, 'writing', content_id);
-  res.json({ session_id: sessionId });
+  try {
+    const { student_id, content_id } = req.query;
+    const sessionId = await saveSession(student_id || req.user.id, 'writing', content_id);
+    res.json({ session_id: sessionId });
+  } catch (e) {
+    res.json({ session_id: crypto.randomUUID() });
+  }
 });
 
 router.post('/writing/evaluate', authMiddleware, async (req, res) => {
@@ -367,7 +825,11 @@ STUDENT ESSAY:
 ${student_text}
 
 Evaluate grammar, vocabulary, coherence, task achievement, and word count compliance.
-Return ONLY valid JSON:
+Each correction must quote text copied EXACTLY from the student's essay in "original",
+give the fixed version in "suggestion", and say why in one short sentence.
+Only include corrections for text that genuinely appears in the essay — never invent examples.
+If the essay has no errors worth correcting, return "corrections": [].
+Return ONLY valid JSON (no markdown, no trailing commas):
 {
   "score": <0-100>,
   "feedback": "<3-4 sentence overall feedback with specific examples from their writing>",
@@ -376,7 +838,7 @@ Return ONLY valid JSON:
   "coherence": <0-100>,
   "task_achievement": <0-100>,
   "word_count_score": <0-100>,
-  "corrections": ["<specific correction 1>", "<specific correction 2>"],
+  "corrections": [{"original":"<exact text from the essay>","suggestion":"<corrected text>","reason":"<why, one short sentence>"}],
   "strengths": ["<point>"],
   "improvements": ["<point>"]
 }`;
@@ -392,8 +854,8 @@ Return ONLY valid JSON:
         word_count_score: result.word_count_score,
       };
     }
+    result.corrections = normaliseCorrections(result.corrections);
     result.word_count = wordCount;
-    result.model_used = process.env.NVIDIA_MODEL || 'local';
     await saveEvaluation(student_id || req.user.id, 'writing', result.score || 60, session_id, { writingPrompt, student_text, wordCount });
     res.json(result);
   } catch (err) {
@@ -414,8 +876,7 @@ router.get('/evaluations/progress/:student_id', authMiddleware, async (req, res)
   const { data, error: dbErr } = await supabaseAdmin
     .from('lsrw_evaluations')
     .select('skill_type, score')
-    .eq('student_id', sid)
-    .catch(() => ({ data: [], error: null }));
+    .eq('student_id', sid);
 
   if (dbErr) return res.json({ progress: [] });
 
@@ -446,10 +907,70 @@ router.get('/evaluations/recent/:student_id', authMiddleware, async (req, res) =
     .select('id, skill_type, score, created_at')
     .eq('student_id', sid)
     .order('created_at', { ascending: false })
-    .limit(10)
-    .catch(() => ({ data: [] }));
+    .limit(10);
 
   res.json({ recent: data || [] });
+});
+
+// ─── CSV export (opens directly in Excel) ───────────────────────────────────────
+
+const SKILL_LABEL = { listening: 'Listening', speaking: 'Speaking', reading: 'Reading', writing: 'Writing' };
+
+// Escape one CSV cell per RFC 4180: wrap in quotes if it contains a comma,
+// quote or newline, and double any inner quotes.
+function csvCell(value) {
+  const s = value == null ? '' : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// A short, human-readable summary of an attempt's metadata (shape varies by skill).
+function evaluationDetails(skill, m = {}) {
+  const clip = (t, n = 80) => String(t).replace(/\s+/g, ' ').trim().slice(0, n);
+  switch (skill) {
+    case 'writing':   return m.wordCount != null ? `Words: ${m.wordCount}` : (m.writingPrompt ? `Prompt: ${clip(m.writingPrompt)}` : '');
+    case 'reading':   return m.time_taken_seconds != null ? `Time: ${m.time_taken_seconds}s` : '';
+    case 'speaking':  return m.topic_prompt ? `Topic: ${clip(m.topic_prompt)}` : '';
+    case 'listening': return Array.isArray(m.questions) ? `Questions: ${m.questions.length}` : '';
+    default:          return '';
+  }
+}
+
+router.get('/evaluations/export/:student_id', authMiddleware, async (req, res) => {
+  const sid = req.params.student_id;
+  if (req.user.role === 'student' && req.user.id !== sid) {
+    return error(res, 'Access denied', 403);
+  }
+
+  const { data, error: dbErr } = await supabaseAdmin
+    .from('lsrw_evaluations')
+    .select('skill_type, score, metadata, created_at')
+    .eq('student_id', sid)
+    .order('created_at', { ascending: false });
+
+  if (dbErr) return error(res, 'Could not export results. Please try again.', 500);
+
+  const rows = data || [];
+  const header = ['Date', 'Time', 'Skill', 'Score (%)', 'Details'];
+  const lines = [header.map(csvCell).join(',')];
+  for (const r of rows) {
+    const d = new Date(r.created_at);
+    const date = Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+    const time = Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(11, 16);
+    lines.push([
+      date,
+      time,
+      SKILL_LABEL[r.skill_type] || r.skill_type,
+      r.score ?? '',
+      evaluationDetails(r.skill_type, r.metadata),
+    ].map(csvCell).join(','));
+  }
+
+  // ﻿ BOM so Excel reads UTF-8 (accents, symbols) correctly.
+  const csv = '﻿' + lines.join('\r\n') + '\r\n';
+  const filename = `lsrw-results-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
 });
 
 module.exports = router;

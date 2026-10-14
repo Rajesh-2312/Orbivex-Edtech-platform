@@ -4,7 +4,7 @@
  * uses (company_slug, round_index) as the upsert key.
  *
  * Run from a host that has SUPABASE_URL and SUPABASE_SERVICE_KEY set:
- *   docker compose exec api node seed-company-prep.js
+ *   node seed-company-prep.js  (from backend/)
  */
 const { createClient } = require('@supabase/supabase-js');
 

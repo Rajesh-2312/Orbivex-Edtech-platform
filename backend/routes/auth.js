@@ -215,10 +215,10 @@ router.patch('/profile', authMiddleware, async (req, res) => {
  * Self-service college + admin account creation (called from OnboardingPage)
  */
 router.post('/onboard-college', async (req, res) => {
-  const { college, plan_id, admin_name, admin_email, admin_password } = req.body;
+  const { college, admin_name, admin_email, admin_password } = req.body;
 
-  if (!college?.name || !admin_email || !admin_password || !admin_name || !plan_id) {
-    return error(res, 'All fields required: college, plan_id, admin details');
+  if (!college?.name || !admin_email || !admin_password || !admin_name) {
+    return error(res, 'All fields required: college and admin details');
   }
 
   const passwordErr = validatePassword(admin_password);
@@ -271,53 +271,10 @@ router.post('/onboard-college', async (req, res) => {
         college_id: newCollege.id,
       }, { onConflict: 'id' });
 
-    // 4. Start trial subscription
-    const now = new Date();
-    const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 14);
-
-    await supabaseAdmin.from('subscriptions').insert({
-      college_id: newCollege.id,
-      admin_user_id: authData.user.id,
-      plan_id,
-      billing_cycle: 'monthly',
-      status: 'trialing',
-      amount_paid: 0,
-      trial_ends_at: trialEnd.toISOString(),
-      current_period_start: now.toISOString(),
-      current_period_end: trialEnd.toISOString(),
-    });
-
-    // 5. Send welcome email (async, non-blocking)
-    const { sendTrialWelcomeEmail, sendDemoRequestNotificationEmail } = require('../utils/billingEmails');
-    const PLAN_NAMES = { starter: 'Starter', growth: 'Growth', enterprise: 'Enterprise' };
-
-    sendTrialWelcomeEmail({
-      to: admin_email,
-      adminName: admin_name,
-      collegeName: college.name,
-      planName: PLAN_NAMES[plan_id] || plan_id,
-      trialEnds: trialEnd.toISOString(),
-    }).catch(() => {});
-
-    // Notify founder of new signup (only when SUPER_ADMIN_EMAIL is configured)
-    const FOUNDER_EMAIL = process.env.SUPER_ADMIN_EMAIL;
-    if (FOUNDER_EMAIL) {
-      sendDemoRequestNotificationEmail({
-        to: FOUNDER_EMAIL,
-        name: admin_name,
-        college: college.name,
-        phone: college.phone || 'N/A',
-        email: admin_email,
-        students: college.student_count || 'Not specified',
-      }).catch(() => {});
-    }
-
     return success(res, {
-      message: 'College and admin account created successfully. Trial started!',
+      message: 'College and admin account created successfully.',
       college_id: newCollege.id,
       admin_email,
-      trial_ends: trialEnd.toISOString(),
     }, 201);
   } catch (err) {
     console.error('[onboard] Unexpected error:', err);

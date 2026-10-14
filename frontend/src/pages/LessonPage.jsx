@@ -29,7 +29,7 @@ export default function LessonPage() {
   const loadLesson = async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/api/lessons/${id}`);
+      const res = await api.get(`/lessons/${id}`);
       setLesson(res.data.data);
     } catch {}
     setLoading(false);

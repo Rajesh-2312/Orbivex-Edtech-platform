@@ -2,16 +2,15 @@
 /**
  * Backfill lesson embeddings for the AI tutor.
  *
- *   docker compose exec api node scripts/backfill-embeddings.js
- *   docker compose exec api node scripts/backfill-embeddings.js --course=<uuid>
- *   docker compose exec api node scripts/backfill-embeddings.js --lesson=<uuid>
- *   docker compose exec api node scripts/backfill-embeddings.js --limit=20
+ *   node backfill-embeddings.js
+ *   node backfill-embeddings.js --course=<uuid>
+ *   node backfill-embeddings.js --lesson=<uuid>
+ *   node backfill-embeddings.js --limit=20
  *
  * Idempotent: each lesson's existing rows are replaced.
  */
 
-// Env is injected by Docker Compose when run inside orbivex-api. If invoked
-// from the host directly, load .env manually (dotenv is optional).
+// Load .env from the repo root (dotenv is optional).
 try { require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }); }
 catch { /* dotenv not installed — container case */ }
 

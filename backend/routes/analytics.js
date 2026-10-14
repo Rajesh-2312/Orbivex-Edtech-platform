@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const { supabase } = require('../config/supabase');
 const { supabaseAdmin } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 const roleMiddleware = require('../middleware/role');
@@ -13,20 +12,20 @@ const { success, error } = require('../utils/response');
 router.get('/dashboard', authMiddleware, async (req, res) => {
   try {
     // Enrolled courses count
-    const { count: enrolledCount } = await supabase
+    const { count: enrolledCount } = await supabaseAdmin
       .from('enrollments')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id);
 
     // Completed lessons count
-    const { count: completedCount } = await supabase
+    const { count: completedCount } = await supabaseAdmin
       .from('progress')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id)
       .eq('completed', true);
 
     // Quiz average score
-    const { data: quizData } = await supabase
+    const { data: quizData } = await supabaseAdmin
       .from('quiz_responses')
       .select('score')
       .eq('user_id', req.user.id);
@@ -36,7 +35,7 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
       : 0;
 
     // Recent activity (last 10 completions)
-    const { data: recentActivity } = await supabase
+    const { data: recentActivity } = await supabaseAdmin
       .from('progress')
       .select('completed_at, lessons(title, course_id, courses(title))')
       .eq('user_id', req.user.id)
@@ -45,7 +44,7 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
       .limit(10);
 
     // Streak: consecutive days with at least one completion
-    const { data: streakData } = await supabase
+    const { data: streakData } = await supabaseAdmin
       .from('progress')
       .select('completed_at')
       .eq('user_id', req.user.id)

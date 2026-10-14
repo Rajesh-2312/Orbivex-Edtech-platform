@@ -58,18 +58,21 @@ ALTER TABLE public.coding_attempts  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_streaks     ENABLE ROW LEVEL SECURITY;
 
 -- coding_problems: anyone authenticated can read active problems
-CREATE POLICY IF NOT EXISTS "coding_problems_read"
+DROP POLICY IF EXISTS "coding_problems_read" ON public.coding_problems;
+CREATE POLICY "coding_problems_read"
   ON public.coding_problems FOR SELECT
   USING (is_active = true);
 
 -- coding_attempts: students own their rows
-CREATE POLICY IF NOT EXISTS "coding_attempts_own"
+DROP POLICY IF EXISTS "coding_attempts_own" ON public.coding_attempts;
+CREATE POLICY "coding_attempts_own"
   ON public.coding_attempts FOR ALL
   USING  (auth.uid() = student_id)
   WITH CHECK (auth.uid() = student_id);
 
 -- user_streaks: students own their rows
-CREATE POLICY IF NOT EXISTS "user_streaks_own"
+DROP POLICY IF EXISTS "user_streaks_own" ON public.user_streaks;
+CREATE POLICY "user_streaks_own"
   ON public.user_streaks FOR ALL
   USING  (auth.uid() = student_id)
   WITH CHECK (auth.uid() = student_id);

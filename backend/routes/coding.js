@@ -125,10 +125,10 @@ router.get('/problems', authMiddleware, async (req, res) => {
       user_status: attemptMap[p.id] || 'unsolved',
     }));
 
-    return res.json(success({ problems: enriched, total: enriched.length }));
+    return success(res, { problems: enriched, total: enriched.length });
   } catch (err) {
     console.error('[coding/problems]', err);
-    return res.status(500).json(error('Failed to fetch problems'));
+    return error(res, 'Failed to fetch problems', 500);
   }
 });
 
@@ -141,7 +141,7 @@ router.get('/problems/:slug', authMiddleware, async (req, res) => {
       .eq('slug', req.params.slug)
       .single();
 
-    if (err || !problem) return res.status(404).json(error('Problem not found'));
+    if (err || !problem) return error(res, 'Problem not found', 404);
 
     // Get user's previous attempts for this problem
     const { data: attempts } = await supabaseAdmin
@@ -152,10 +152,10 @@ router.get('/problems/:slug', authMiddleware, async (req, res) => {
       .order('created_at', { ascending: false })
       .limit(5);
 
-    return res.json(success({ problem, attempts: attempts || [] }));
+    return success(res, { problem, attempts: attempts || [] });
   } catch (err) {
     console.error('[coding/problem]', err);
-    return res.status(500).json(error('Failed to fetch problem'));
+    return error(res, 'Failed to fetch problem', 500);
   }
 });
 
@@ -168,11 +168,11 @@ router.post('/problems/:slug/hint', authMiddleware, async (req, res) => {
       .eq('slug', req.params.slug)
       .single();
 
-    if (!problem) return res.status(404).json(error('Problem not found'));
+    if (!problem) return error(res, 'Problem not found', 404);
 
     const { userCode = '', hintLevel = 1 } = req.body;
 
-    const model = process.env.OLLAMA_DEFAULT_MODEL || 'qwen2.5:1.5b';
+    const model = 'standard';
     const prompt = `You are a DSA tutor helping an Indian engineering student.
 
 Problem: ${problem.title} (${problem.topic}, ${problem.difficulty})
@@ -189,10 +189,10 @@ Return JSON: {"hint": "your hint text", "complexity": "Time: O(?), Space: O(?)",
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { hint: problem.hint_topic, complexity: '', next_step: 'Try breaking the problem into smaller parts.' };
 
-    return res.json(success(parsed));
+    return success(res, parsed);
   } catch (err) {
     console.error('[coding/hint]', err);
-    return res.status(500).json(error('Failed to generate hint'));
+    return error(res, 'Failed to generate hint', 500);
   }
 });
 
@@ -200,7 +200,7 @@ Return JSON: {"hint": "your hint text", "complexity": "Time: O(?), Space: O(?)",
 router.post('/attempt', authMiddleware, async (req, res) => {
   try {
     const { problem_slug, status, code, language = 'python' } = req.body;
-    if (!problem_slug || !status) return res.status(400).json(error('problem_slug and status required'));
+    if (!problem_slug || !status) return error(res, 'problem_slug and status required', 400);
 
     const { data: problem } = await supabaseAdmin
       .from('coding_problems')
@@ -208,7 +208,7 @@ router.post('/attempt', authMiddleware, async (req, res) => {
       .eq('slug', problem_slug)
       .single();
 
-    if (!problem) return res.status(404).json(error('Problem not found'));
+    if (!problem) return error(res, 'Problem not found', 404);
 
     await supabaseAdmin.from('coding_attempts').upsert({
       user_id: req.user.id,
@@ -222,10 +222,10 @@ router.post('/attempt', authMiddleware, async (req, res) => {
     // Update streak (async)
     updateStreak(req.user.id).catch(() => {});
 
-    return res.json(success({ message: 'Attempt saved' }));
+    return success(res, { message: 'Attempt saved' });
   } catch (err) {
     console.error('[coding/attempt]', err);
-    return res.status(500).json(error('Failed to save attempt'));
+    return error(res, 'Failed to save attempt', 500);
   }
 });
 
@@ -261,10 +261,10 @@ router.get('/progress', authMiddleware, async (req, res) => {
       pct: stats.total ? Math.round((stats.solved / stats.total) * 100) : 0,
     }));
 
-    return res.json(success({ progress, total_solved: (attempts || []).filter(a => a.status === 'solved').length }));
+    return success(res, { progress, total_solved: (attempts || []).filter(a => a.status === 'solved').length });
   } catch (err) {
     console.error('[coding/progress]', err);
-    return res.status(500).json(error('Failed to fetch progress'));
+    return error(res, 'Failed to fetch progress', 500);
   }
 });
 
@@ -272,7 +272,7 @@ router.get('/progress', authMiddleware, async (req, res) => {
 router.post('/seed', authMiddleware, async (req, res) => {
   const SUPER_ADMIN = process.env.SUPER_ADMIN_EMAIL;
   if (req.user.role !== 'admin' && !(SUPER_ADMIN && req.user.email === SUPER_ADMIN)) {
-    return res.status(403).json(error('Admin only'));
+    return error(res, 'Admin only', 403);
   }
   try {
     const { error: err } = await supabaseAdmin
@@ -290,10 +290,10 @@ router.post('/seed', authMiddleware, async (req, res) => {
       })), { onConflict: 'slug' });
 
     if (err) throw err;
-    return res.json(success({ message: `${SEED_PROBLEMS.length} problems seeded successfully` }));
+    return success(res, { message: `${SEED_PROBLEMS.length} problems seeded successfully` });
   } catch (err) {
     console.error('[coding/seed]', err);
-    return res.status(500).json(error('Seeding failed: ' + err.message));
+    return error(res, 'Seeding failed: ' + err.message, 500);
   }
 });
 

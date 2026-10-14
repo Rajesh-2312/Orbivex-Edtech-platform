@@ -12,7 +12,7 @@
  * Usage:
  *   node scripts/admin-e2e-test.js                  # run full suite
  *   node scripts/admin-e2e-test.js --cleanup        # delete TEST_ rows & exit
- *   node scripts/admin-e2e-test.js --skip-ai        # skip Ollama-dependent steps
+ *   node scripts/admin-e2e-test.js --skip-ai        # skip AI-provider-dependent steps
  *
  * Env:
  *   API_URL           default http://localhost:3001

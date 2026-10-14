@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import PageTransition from '../../components/layout/PageTransition';
 import useAuthStore from '../../store/authStore';
-import { getLSRWProgress, getLSRWRecent } from '../../lib/lsrwApi';
+import { getLSRWProgress, getLSRWRecent, downloadLSRWResults } from '../../lib/lsrwApi';
+import { reasonMessage } from '../../lib/proctor/violationPolicy';
 import {
   HiOutlineSpeakerWave, HiOutlineMicrophone, HiOutlineBookOpen,
   HiOutlinePencilSquare, HiOutlineArrowRight, HiOutlineClock,
-  HiOutlineTrophy, HiOutlineChartBar,
+  HiOutlineTrophy, HiOutlineChartBar, HiOutlineArrowDownTray,
+  HiOutlineShieldExclamation,
 } from 'react-icons/hi2';
 
 const SKILLS = [
@@ -70,10 +72,27 @@ function ScoreRing({ score, color }) {
 export default function LSRWPage() {
   const user = useAuthStore(s => s.user);
   const navigate = useNavigate();
+  const location = useLocation();
+  // Set by the proctor when it ends an attempt — tells the student exactly which
+  // rule ended it, instead of dumping them back here with no explanation.
+  const terminated = location.state?.terminated;
   const [progress, setProgress] = useState([]);
   const [recent, setRecent] = useState([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    if (!user?.id || downloading) return;
+    setDownloading(true);
+    try {
+      await downloadLSRWResults(user.id);
+    } catch {
+      setApiError(true);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   useEffect(() => {
     if (!user?.id) return;
@@ -111,6 +130,28 @@ export default function LSRWPage() {
             </div>
           </div>
         </motion.div>
+
+        {/* Proctoring termination banner */}
+        {terminated && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+            role="alert"
+            style={{
+              display: 'flex', alignItems: 'flex-start', gap: 13, padding: '15px 18px', marginBottom: 20,
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.28)',
+              borderRadius: 'var(--radius-md)',
+            }}>
+            <HiOutlineShieldExclamation size={22} style={{ color: '#ef4444', flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#ef4444', marginBottom: 4 }}>
+                {terminated.skill} attempt ended by the proctor
+              </div>
+              <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                {reasonMessage(terminated.reason)} Your answers were not submitted — you can start a fresh attempt when you are ready.
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* API unavailable banner */}
         {apiError && (
@@ -205,6 +246,21 @@ export default function LSRWPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
               <HiOutlineClock size={18} style={{ color: 'var(--text-muted)' }} />
               <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Recent Sessions</h3>
+              <button
+                onClick={handleDownload}
+                disabled={downloading}
+                title="Download all your LSRW results as a spreadsheet (opens in Excel)"
+                style={{
+                  marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7,
+                  padding: '7px 14px', borderRadius: 9,
+                  background: downloading ? 'rgba(16,185,129,0.10)' : 'rgba(16,185,129,0.14)',
+                  border: '1px solid rgba(16,185,129,0.35)', color: '#10b981',
+                  fontSize: '0.78rem', fontWeight: 600,
+                  cursor: downloading ? 'wait' : 'pointer',
+                }}>
+                <HiOutlineArrowDownTray size={15} />
+                {downloading ? 'Preparing…' : 'Download results (Excel)'}
+              </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
               {recent.map(ev => {

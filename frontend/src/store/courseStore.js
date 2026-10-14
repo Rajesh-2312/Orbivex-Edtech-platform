@@ -21,7 +21,7 @@ const useCourseStore = create((set) => ({
   fetchCourse: async (id) => {
     set({ loading: true });
     try {
-      const res = await api.get(`/api/courses/${id}`);
+      const res = await api.get(`/courses/${id}`);
       set({ currentCourse: res.data.data, loading: false });
     } catch (err) {
       set({ error: err.message, loading: false });
@@ -30,7 +30,7 @@ const useCourseStore = create((set) => ({
 
   fetchLessons: async (courseId) => {
     try {
-      const res = await api.get(`/api/lessons/course/${courseId}`);
+      const res = await api.get(`/lessons/course/${courseId}`);
       set({ lessons: res.data.data });
     } catch (err) {
       set({ error: err.message });

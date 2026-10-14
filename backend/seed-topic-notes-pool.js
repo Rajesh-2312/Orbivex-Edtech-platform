@@ -3,14 +3,13 @@
  *
  * Generates all 5 pace variants for every topic in a (company, round) — or
  * across all rounds of a company — by hitting topicNotesAgent directly. Runs
- * up to CONCURRENCY generations in parallel (default 3, matching Ollama's
- * inflight cap from config/ollama.js).
+ * up to CONCURRENCY generations in parallel (default 3).
  *
- * Examples:
- *   docker compose exec api node seed-topic-notes-pool.js tcs 0
- *   docker compose exec api node seed-topic-notes-pool.js tcs            # all rounds
- *   docker compose exec api node seed-topic-notes-pool.js tcs 0 --paces 1,3,5
- *   docker compose exec api node seed-topic-notes-pool.js tcs 0 --concurrency 2
+ * Examples (run from backend/):
+ *   node seed-topic-notes-pool.js tcs 0
+ *   node seed-topic-notes-pool.js tcs            # all rounds
+ *   node seed-topic-notes-pool.js tcs 0 --paces 1,3,5
+ *   node seed-topic-notes-pool.js tcs 0 --concurrency 2
  */
 
 const { createClient } = require('@supabase/supabase-js');

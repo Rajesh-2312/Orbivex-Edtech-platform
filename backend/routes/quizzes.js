@@ -1,16 +1,35 @@
 const express = require('express');
 const router = express.Router();
-const { supabase } = require('../config/supabase');
+const { supabaseAdmin } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
 const { success, error } = require('../utils/response');
 const { notify } = require('../utils/notifications');
 
 /**
+ * Strip the answer key out of `questions_json` before it leaves the server.
+ *
+ * This endpoint used to return the raw quiz row, so `correct_answer` and
+ * `explanation` for every question were sitting in the network tab before the
+ * student picked an option. QuizPlayer.jsx only ever reads `question` and
+ * `options`, so nothing in the UI needs the key — scoring happens server-side
+ * in POST /submit, which re-reads the quiz from the database.
+ *
+ * Teachers and admins still get the full row: they author and review quizzes.
+ */
+function withoutAnswerKey(quiz) {
+  const questions = Array.isArray(quiz.questions_json) ? quiz.questions_json : [];
+  return {
+    ...quiz,
+    questions_json: questions.map(({ correct_answer, explanation, ...rest }) => rest),
+  };
+}
+
+/**
  * GET /api/quizzes/lesson/:lessonId
- * Get quiz for a lesson.
+ * Get quiz for a lesson. The answer key is withheld from students.
  */
 router.get('/lesson/:lessonId', authMiddleware, async (req, res) => {
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('quizzes')
     .select('*')
     .eq('lesson_id', req.params.lessonId)
@@ -19,7 +38,9 @@ router.get('/lesson/:lessonId', authMiddleware, async (req, res) => {
     .single();
 
   if (dbError) return error(res, 'No quiz found for this lesson', 404);
-  return success(res, data);
+
+  const isAuthor = req.user.role === 'teacher' || req.user.role === 'admin';
+  return success(res, isAuthor ? data : withoutAnswerKey(data));
 });
 
 /**
@@ -32,7 +53,7 @@ router.post('/submit', authMiddleware, async (req, res) => {
   if (!quiz_id || !answers) return error(res, 'quiz_id and answers are required');
 
   // Fetch the quiz
-  const { data: quiz } = await supabase
+  const { data: quiz } = await supabaseAdmin
     .from('quizzes')
     .select('*')
     .eq('id', quiz_id)
@@ -41,7 +62,10 @@ router.post('/submit', authMiddleware, async (req, res) => {
   if (!quiz) return error(res, 'Quiz not found', 404);
 
   // Calculate score
-  const questions = quiz.questions_json;
+  const questions = Array.isArray(quiz.questions_json) ? quiz.questions_json : [];
+  // An empty quiz would otherwise divide by zero below and persist score: NaN,
+  // which then poisons the average in /api/progress/summary.
+  if (questions.length === 0) return error(res, 'This quiz has no questions', 409);
   let correct = 0;
   const results = questions.map((q, i) => {
     const userAnswer = answers[i];
@@ -59,7 +83,7 @@ router.post('/submit', authMiddleware, async (req, res) => {
   const score = Math.round((correct / questions.length) * 100);
 
   // Save response
-  const { data: response, error: dbError } = await supabase
+  const { data: response, error: dbError } = await supabaseAdmin
     .from('quiz_responses')
     .insert({
       user_id: req.user.id,
@@ -97,7 +121,7 @@ router.post('/submit', authMiddleware, async (req, res) => {
  * Get user's quiz results.
  */
 router.get('/results/:quizId', authMiddleware, async (req, res) => {
-  const { data, error: dbError } = await supabase
+  const { data, error: dbError } = await supabaseAdmin
     .from('quiz_responses')
     .select('*')
     .eq('quiz_id', req.params.quizId)
